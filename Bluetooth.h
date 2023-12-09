@@ -120,6 +120,7 @@ char bt_devname[11];
         } else { return false; }
       } else { return false; }
     }
+    return true;
   }
 
   bool bt_init() {

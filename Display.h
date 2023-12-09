@@ -471,7 +471,8 @@ void draw_disp_area() {
         free(pin_str);
       } else {
         if (millis()-last_page_flip >= page_interval) {
-          disp_page = (++disp_page%pages);
+          ++disp_page;
+          disp_page = disp_page%pages;
           last_page_flip = millis();
           if (not community_fw and disp_page == 0) disp_page = 1;
         }

@@ -545,10 +545,12 @@ void LoRaClass::optimizeModemSensitivity(){
   byte bw = (readRegister(REG_MODEM_CONFIG_1) >> 4);
   uint32_t freq = getFrequency();
 
-  if (bw == 9 && 410E6 <= freq <= 525E6) {
+  //if (bw == 9 && 410E6 <= freq <= 525E6) {
+  if (bw == 9 && (410E6 <= freq) && (freq <= 525E6)) {
     writeRegister(REG_HIGH_BW_OPTIMIZE_1, 0x02);
     writeRegister(REG_HIGH_BW_OPTIMIZE_2, 0x7f);
-  } else if (bw == 9 && 862E6 <= freq <= 1020E6) {
+  //} else if (bw == 9 && 862E6 <= freq <= 1020E6) {
+  } else if (bw == 9 && (862E6 <= freq) && (freq <= 1020E6)) {
     writeRegister(REG_HIGH_BW_OPTIMIZE_1, 0x02);
     writeRegister(REG_HIGH_BW_OPTIMIZE_2, 0x64);
   } else {
