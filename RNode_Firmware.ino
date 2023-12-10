@@ -948,8 +948,10 @@ void updateModemStatus() {
   if ((status & SIG_SYNCED) == SIG_SYNCED) { stat_signal_synced = true; } else { stat_signal_synced = false; }
   if ((status & RX_ONGOING) == RX_ONGOING) { stat_rx_ongoing = true; } else { stat_rx_ongoing = false; }
 
-  if (stat_signal_detected || stat_signal_synced || stat_rx_ongoing) {
-    if (stat_rx_ongoing) {
+  //if (stat_signal_detected || stat_signal_synced || stat_rx_ongoing) {
+  if (stat_signal_detected || stat_signal_synced) {
+    //if (stat_rx_ongoing) {
+    if (stat_signal_detected) {
       if (dcd_count < dcd_threshold) {
         dcd_count++;
       } else {
