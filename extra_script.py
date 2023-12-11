@@ -20,12 +20,12 @@ def after_upload(source, target, env):
     platform = env.GetProjectOption("platform")
     board = env.GetProjectOption("board")
     if (platform == "espressif32"):
-        time.sleep(2)
+        time.sleep(3)
         # device provisioning is incomplete and only currently appropriate for 915MHz T-Beam
         #device_provision(env)
         firmware_hash(source, env)
         # firmware pacakaging is incomplete due to missing console image
-        firmware_package(env)
+        #firmware_package(env)
 
 env.AddPreAction("upload", before_upload)
 env.AddPostAction("upload", after_upload)

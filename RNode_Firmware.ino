@@ -13,6 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// CBA (Reticulum includes must come before local to avoid collision with local defines
+#include <Transport.h>
+#include <Reticulum.h>
+#include <Interface.h>
+
 #include <Arduino.h>
 #include <SPI.h>
 #include "Utilities.h"
@@ -46,6 +51,64 @@ char sbuf[128];
 #if MCU_VARIANT == MCU_ESP32
   bool packet_ready = false;
 #endif
+
+// CBA
+class LoRaInterface : public RNS::Interface {
+public:
+	LoRaInterface() : RNS::Interface("LoRaInterface") {
+		IN(true);
+		OUT(true);
+	}
+	LoRaInterface(const char *name) : RNS::Interface(name) {
+		IN(true);
+		OUT(true);
+	}
+	virtual ~LoRaInterface() {
+		name("deleted");
+	}
+	virtual inline std::string toString() const { return "LoRaInterface[" + name() + "]"; }
+	virtual void on_incoming(const RNS::Bytes& data) {
+    RNS::extreme("LoRaInterface.on_incoming: data: " + data.toHex());
+    Interface::on_incoming(data);
+  }
+private:
+	virtual void on_outgoing(const RNS::Bytes& data) {
+    RNS::extreme("LoRaInterface.on_outgoing: data: " + data.toHex());
+    RNS::extreme("LoRaInterface.on_outgoing: adding packet to outgoing queue...");
+    for (size_t i = 0; i < data.size(); i++) {
+        if (queue_height < CONFIG_QUEUE_MAX_LENGTH && queued_bytes < CONFIG_QUEUE_SIZE) {
+            queued_bytes++;
+            packet_queue[queue_cursor++] = data.data()[i];
+            if (queue_cursor == CONFIG_QUEUE_SIZE) queue_cursor = 0;
+        }
+    }
+    if (!fifo16_isfull(&packet_starts) && queued_bytes < CONFIG_QUEUE_SIZE) {
+        uint16_t s = current_packet_start;
+        int16_t e = queue_cursor-1; if (e == -1) e = CONFIG_QUEUE_SIZE-1;
+        uint16_t l;
+
+        if (s != e) {
+            l = (s < e) ? e - s + 1 : CONFIG_QUEUE_SIZE - s + e + 1;
+        } else {
+            l = 1;
+        }
+
+        if (l >= MIN_L) {
+            queue_height++;
+
+            fifo16_push(&packet_starts, s);
+            fifo16_push(&packet_lengths, l);
+
+            current_packet_start = queue_cursor;
+        }
+
+    }
+  }
+};
+
+// CBA
+RNS::Reticulum reticulum = {RNS::Type::NONE};
+LoRaInterface lora_interface;
 
 void setup() {
   #if MCU_VARIANT == MCU_ESP32
@@ -152,6 +215,49 @@ void setup() {
   validate_status();
 
   if (op_mode != MODE_TNC) LoRa.setFrequency(0);
+
+  // CBA
+  Serial.write("Starting RNS...\r\n");
+  RNS::loglevel(RNS::LOG_EXTREME);
+
+	RNS::head("Registering LoRA Interface...", RNS::LOG_EXTREME);
+	lora_interface.mode(RNS::Type::Interface::MODE_GATEWAY);
+	RNS::Transport::register_interface(lora_interface);
+
+	RNS::head("Creating Reticulum instance...", RNS::LOG_EXTREME);
+  reticulum = RNS::Reticulum();
+	reticulum.transport_enabled(true);
+	reticulum.start();
+
+	RNS::head("Starting radio...", RNS::LOG_EXTREME);
+  // CBA WARNING eeprom writing may have been responsible for making the LoRa radio unreponsive
+/*
+  if (hw_ready && eeprom_have_conf()) {
+    RNS::extreme("Loading config from eeprom...");
+    eeprom_conf_load();
+    startRadio();
+  }
+  else {
+    RNS::extreme("Saving factory config to eeprom...");
+    lora_freq = 915000000;
+    lora_bw = 125000;
+    lora_sf = 8;
+    lora_cr = 5;
+    lora_txp = 17;
+    startRadio();
+    eeprom_conf_save();
+  }
+*/
+  lora_freq = 915000000;
+  lora_bw = 125000;
+  lora_sf = 8;
+  lora_cr = 5;
+  lora_txp = 17;
+  startRadio();
+
+	RNS::head("RNS is ready!", RNS::LOG_EXTREME);
+  //RNS::loglevel(RNS::LOG_NONE);
+
 }
 
 void lora_receive() {
@@ -163,6 +269,16 @@ void lora_receive() {
 }
 
 inline void kiss_write_packet() {
+
+  // CBA
+  RNS::Bytes data;
+  // CBA where to find header that is missing from packet buffer???
+  //data << header;
+  for (uint16_t i = 0; i < read_len; i++) {
+    data << pbuf[i];
+  }
+  lora_interface.on_incoming(data);
+
   serial_write(FEND);
   serial_write(CMD_DATA);
   for (uint16_t i = 0; i < read_len; i++) {
@@ -298,6 +414,12 @@ void ISR_VECT receive_callback(int packet_size) {
 }
 
 bool startRadio() {
+// CBA
+Serial.println("lora_freq=" + String(lora_freq));
+Serial.println("lora_bw=" + String(lora_bw));
+Serial.println("lora_sf=" + String(lora_sf));
+Serial.println("lora_cr=" + String(lora_cr));
+Serial.println("lora_txp=" + String(lora_txp));
   update_radio_lock();
   if (!radio_online && !console_active) {
     if (!radio_locked && hw_ready) {
@@ -666,10 +788,12 @@ void serialCallback(uint8_t sbyte) {
       if (sbyte == 0xFF) {
         kiss_indicate_radiostate();
       } else if (sbyte == 0x00) {
-        stopRadio();
+        // CBA
+        //stopRadio();
         kiss_indicate_radiostate();
       } else if (sbyte == 0x01) {
-        startRadio();
+        // CBA
+        //startRadio();
         kiss_indicate_radiostate();
       }
     } else if (command == CMD_ST_ALOCK) {
@@ -1075,6 +1199,7 @@ void validate_status() {
                 hw_ready = true;
               } else {
                 hw_ready = false;
+                Serial.write("Error, device init failed\r\n");
               }
             #else
               hw_ready = true;
@@ -1093,10 +1218,12 @@ void validate_status() {
           if (hw_ready && eeprom_have_conf()) {
             eeprom_conf_load();
             op_mode = MODE_TNC;
-            startRadio();
+            // CBA
+            //startRadio();
           }
         } else {
           hw_ready = false;
+          Serial.write("Error, eeprom checksum invalid\r\n");
           #if HAS_DISPLAY
             if (disp_ready) {
               device_init_done = true;
@@ -1106,6 +1233,7 @@ void validate_status() {
         }
       } else {
         hw_ready = false;
+        Serial.write("Error, eeprom content invalid\r\n");
         #if HAS_DISPLAY
           if (disp_ready) {
             device_init_done = true;
@@ -1115,6 +1243,7 @@ void validate_status() {
       }
     } else {
       hw_ready = false;
+      Serial.write("Error, eeprom lock failed\r\n");
       #if HAS_DISPLAY
         if (disp_ready) {
           device_init_done = true;
@@ -1136,6 +1265,10 @@ void validate_status() {
 }
 
 void loop() {
+
+  // CBA
+	reticulum.loop();
+
   if (radio_online) {
     #if MCU_VARIANT == MCU_ESP32
       if (packet_ready) {
@@ -1209,7 +1342,8 @@ void loop() {
     } else {
 
       led_indicate_not_ready();
-      stopRadio();
+      // CBA
+      //stopRadio();
     }
   }
 
