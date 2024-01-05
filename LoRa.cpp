@@ -110,8 +110,16 @@ bool LoRaClass::preInit() {
   
   SPI.begin();
 
-  // check version
-  uint8_t version = readRegister(REG_VERSION);
+  // check version (retry for up to 2 seconds)
+  uint8_t version;
+  long start = millis();
+  while (((millis() - start) < 2000) && (millis() >= start)) {
+    version = readRegister(REG_VERSION);
+    if (version == 0x12) {
+      break;
+    }
+    delay(100);
+  }
   if (version != 0x12) {
     return false;
   }
@@ -515,15 +523,15 @@ long LoRaClass::getSignalBandwidth()
   byte bw = (readRegister(REG_MODEM_CONFIG_1) >> 4);
   switch (bw) {
     case 0: return 7.8E3;
-    case 1: return 10.4E3; 
-    case 2: return 15.6E3; 
-    case 3: return 20.8E3; 
-    case 4: return 31.25E3; 
-    case 5: return 41.7E3; 
-    case 6: return 62.5E3; 
-    case 7: return 125E3; 
-    case 8: return 250E3; 
-    case 9: return 500E3; 
+    case 1: return 10.4E3;
+    case 2: return 15.6E3;
+    case 3: return 20.8E3;
+    case 4: return 31.25E3;
+    case 5: return 41.7E3;
+    case 6: return 62.5E3;
+    case 7: return 125E3;
+    case 8: return 250E3;
+    case 9: return 500E3;
   }
   
   return 0;
@@ -548,7 +556,7 @@ void LoRaClass::optimizeModemSensitivity(){
   if (bw == 9 && (410E6 <= freq) && (freq <= 525E6)) {
     writeRegister(REG_HIGH_BW_OPTIMIZE_1, 0x02);
     writeRegister(REG_HIGH_BW_OPTIMIZE_2, 0x7f);
-  } else if (bw == 9 && (862E6 <= freq) && (freq <= 1020E6)) {
+  } else if (bw == 9 && (820E6 <= freq) && (freq <= 1020E6)) {
     writeRegister(REG_HIGH_BW_OPTIMIZE_1, 0x02);
     writeRegister(REG_HIGH_BW_OPTIMIZE_2, 0x64);
   } else {

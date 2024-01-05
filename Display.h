@@ -382,6 +382,14 @@ void draw_disp_area() {
         disp_area.fillRect(0,8,disp_area.width(),37, SSD1306_BLACK); disp_area.fillRect(0,37,disp_area.width(),27, SSD1306_WHITE);
         disp_area.setFont(SMALL_FONT); disp_area.setTextWrap(false); disp_area.setTextColor(SSD1306_WHITE);
 
+        // CBA
+        //if (reticulum && reticulum.transport_enabled()) {
+        if (op_mode == MODE_TNC) {
+          // CBA Indicate that this is a Transport node
+          disp_area.setCursor(2, 4);
+          disp_area.print("TTTTTTTTTT");
+        }
+
         disp_area.setCursor(2, 13);
         disp_area.print("On");
         disp_area.setCursor(14, 13);

@@ -1096,6 +1096,7 @@ void kiss_dump_eeprom() {
 }
 
 void eeprom_update(int mapped_addr, uint8_t byte) {
+if (mapped_addr >= EEPROM_SIZE) Serial.println("EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!EE!!");
 	#if MCU_VARIANT == MCU_1284P || MCU_VARIANT == MCU_2560
 		EEPROM.update(mapped_addr, byte);
 	#elif MCU_VARIANT == MCU_ESP32

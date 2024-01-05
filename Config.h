@@ -146,12 +146,15 @@
 			const int pin_dio = 26;
 			const int pin_led_rx = 2;
 			const int pin_led_tx = 4;
+			const int pin_button = 38;
             #define HAS_DISPLAY true
             #define HAS_PMU true
             #define HAS_TCXO true
             #define HAS_BLUETOOTH true
             #define HAS_CONSOLE true
             #define HAS_SD false
+			// CBA
+            #define HAS_BUTTON true
 		#elif BOARD_MODEL == BOARD_HUZZAH32
 			const int pin_cs = 4;
 			const int pin_reset = 36;
@@ -203,6 +206,12 @@
             #define HAS_BLUETOOTH true
             #define HAS_PMU true
             #define HAS_CONSOLE true
+			// CBA
+            #define HAS_SDCARD true
+            #define SDCARD_MOSI                 15
+            #define SDCARD_MISO                 2
+            #define SDCARD_SCLK                 14
+            #define SDCARD_CS                   13
 		#elif BOARD_MODEL == BOARD_HELTEC32_V2
 			const int pin_cs = 18;
 			const int pin_reset = 23;

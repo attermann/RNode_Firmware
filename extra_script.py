@@ -20,7 +20,7 @@ def after_upload(source, target, env):
     platform = env.GetProjectOption("platform")
     board = env.GetProjectOption("board")
     if (platform == "espressif32"):
-        time.sleep(3)
+        time.sleep(5)
         # device provisioning is incomplete and only currently appropriate for 915MHz T-Beam
         #device_provision(env)
         firmware_hash(source, env)
