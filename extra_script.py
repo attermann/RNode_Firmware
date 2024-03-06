@@ -1,5 +1,6 @@
 import time
 import hashlib
+import shutil
 
 Import("env")
 
@@ -19,7 +20,7 @@ def target_package(target, source, env):
 
 env.AddCustomTarget(
     name="package",
-    dependencies="$BUILD_DIR/${PROGNAME}.elf",
+    dependencies="$BUILD_DIR/${PROGNAME}.bin",
     actions=[
         target_package
     ],
@@ -31,12 +32,12 @@ env.AddCustomTarget(
 # Upload actions
 #
 
-def before_upload(source, target, env):
-    print("before_upload...")
+def pre_upload(source, target, env):
+    print("pre_upload...")
     # do some actions
 
-def after_upload(source, target, env):
-    print("after_upload...")
+def post_upload(source, target, env):
+    print("post_upload...")
     print("Platform:", env.GetProjectOption("platform"))
     print("Board:", env.GetProjectOption("board"))
     print("Serial port:", env.subst("$UPLOAD_PORT"))
@@ -51,8 +52,26 @@ def after_upload(source, target, env):
         # firmware pacakaging is incomplete due to missing console image
         #firmware_package(env)
 
-env.AddPreAction("upload", before_upload)
-env.AddPostAction("upload", after_upload)
+def post_clean(source, target, env):
+    print("post_clean...")
+    core_dir = env.subst("$CORE_DIR")
+    print("core_dir:", core_dir)
+    packages_dir = env.subst("$PACKAGES_DIR")
+    print("packages_dir:", packages_dir)
+    project_dir = env.subst("$PROJECT_DIR")
+    print("project_dir:", project_dir)
+    #build_dir = env.subst("$BUILD_DIR").get_abspath()
+    build_dir = env.subst("$BUILD_DIR")
+    print("build_dir:", build_dir)
+    build_cache_dir = env.subst("$PLATFORMIO_BUILD_CACHE_DIR")
+    print("build_cache_dir:", build_cache_dir)
+    workspace_dir = env.subst("$PLATFORMIO_WORKSPACE_DIR")
+    print("workspace_dir:", workspace_dir)
+    #shutil.rmtree(directory_path)
+
+env.AddPreAction("upload", pre_upload)
+env.AddPostAction("upload", post_upload)
+env.AddPostAction("clean", post_clean)
 
 def device_provision(env):
     # Device provision
@@ -80,28 +99,34 @@ def firmware_package(env):
     print("Building firmware package...")
     platform = env.GetProjectOption("platform")
     board = env.GetProjectOption("board")
+    print("board:", board)
+    variant = env.GetProjectOption("variant")
+    print("variant:", variant)
     core_dir = env.subst("$CORE_DIR")
     print("core_dir:", core_dir)
     packages_dir = env.subst("$PACKAGES_DIR")
     print("packages_dir:", packages_dir)
+    workspace_dir = env.subst("$WORKSPACE_DIR")
+    print("workspace_dir:", workspace_dir)
     project_dir = env.subst("$PROJECT_DIR")
     print("project_dir:", project_dir)
     #build_dir = env.subst("$BUILD_DIR").get_abspath()
     build_dir = env.subst("$BUILD_DIR")
     print("build_dir:", build_dir)
-    #env.Execute("cp " + packages_dir + "/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + board + ".boot_app0")
-    env.Execute("cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + board + ".boot_app0")
+    #env.Execute("cp " + packages_dir + "/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + variant + ".boot_app0")
+    env.Execute("cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + variant + ".boot_app0")
     env.Execute("cp " + project_dir + "/Release/esptool/esptool.py " + build_dir + "/esptool.py")
     env.Execute("cp " + project_dir + "/Release/console_image.bin " + build_dir + "/console_image.bin")
-    env.Execute("cp " + build_dir + "/firmware.bin " + build_dir + "/rnode_firmware_" + board + ".bin")
-    env.Execute("cp " + build_dir + "/bootloader.bin " + build_dir + "/rnode_firmware_" + board + ".bootloader")
-    env.Execute("cp " + build_dir + "/partitions.bin " + build_dir + "/rnode_firmware_" + board + ".partitions")
+    env.Execute("cp " + build_dir + "/firmware.bin " + build_dir + "/rnode_firmware_" + variant + ".bin")
+    env.Execute("cp " + build_dir + "/bootloader.bin " + build_dir + "/rnode_firmware_" + variant + ".bootloader")
+    env.Execute("cp " + build_dir + "/partitions.bin " + build_dir + "/rnode_firmware_" + variant + ".partitions")
+    env.Execute("rm " + project_dir + "/Release/rnode_firmware_" + variant + ".zip")
     zip_cmd = "zip --move --junk-paths "
+    zip_cmd += project_dir + "/Release/rnode_firmware_" + variant + ".zip "
     zip_cmd += build_dir + "/esptool.py "
     zip_cmd += build_dir + "/console_image.bin "
-    zip_cmd += build_dir + "/rnode_firmware_" + board + ".zip "
-    zip_cmd += build_dir + "/rnode_firmware_" + board + ".boot_app0 "
-    zip_cmd += build_dir + "/rnode_firmware_" + board + ".bin "
-    zip_cmd += build_dir + "/rnode_firmware_" + board + ".bootloader "
-    zip_cmd += build_dir + "/rnode_firmware_" + board + ".partitions "
+    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".boot_app0 "
+    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bin "
+    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bootloader "
+    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".partitions "
     env.Execute(zip_cmd)
