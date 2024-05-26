@@ -13,9 +13,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// CBA Reticulum includes must come before local to avoid collision with local defines
+#define HAS_TRANSPORT
+#ifdef HAS_TRANSPORT
+#include <Transport.h>
+#include <Reticulum.h>
+#include <Interface.h>
+#include <Log.h>
+#include <Bytes.h>
+#endif
+
 #include <Arduino.h>
 #include <SPI.h>
 #include "Utilities.h"
+
+// CBA SD
+#if HAS_SDCARD
+#include <SD.h>
+SPIClass SDSPI(HSPI);
+#endif
 
 FIFOBuffer serialFIFO;
 uint8_t serialBuffer[CONFIG_UART_BUFFER_SIZE+1];
@@ -45,6 +61,153 @@ char sbuf[128];
 
 #if MCU_VARIANT == MCU_ESP32 || MCU_VARIANT == MCU_NRF52
   bool packet_ready = false;
+#endif
+
+#ifdef HAS_TRANSPORT
+// CBA LoRa interface
+class LoRaInterface : public RNS::Interface {
+public:
+	LoRaInterface() : RNS::Interface("LoRaInterface") {
+		IN(true);
+		OUT(true);
+	}
+	LoRaInterface(const char *name) : RNS::Interface(name) {
+		IN(true);
+		OUT(true);
+	}
+	virtual ~LoRaInterface() {
+		name("deleted");
+	}
+	virtual inline std::string toString() const { return "LoRaInterface[" + name() + "]"; }
+	virtual void on_incoming(const RNS::Bytes& data) {
+    // CBA NOTE header is already strippped from packet by receive_callback function
+    RNS::extreme("LoRaInterface.on_incoming: data: " + data.toHex());
+    Interface::on_incoming(data);
+  }
+private:
+	virtual void on_outgoing(const RNS::Bytes& data) {
+    // CBA NOTE header will be addded later by transmit function
+    RNS::extreme("LoRaInterface.on_outgoing: data: " + data.toHex());
+    RNS::extreme("LoRaInterface.on_outgoing: adding packet to outgoing queue...");
+    for (size_t i = 0; i < data.size(); i++) {
+        if (queue_height < CONFIG_QUEUE_MAX_LENGTH && queued_bytes < CONFIG_QUEUE_SIZE) {
+            queued_bytes++;
+            packet_queue[queue_cursor++] = data.data()[i];
+            if (queue_cursor == CONFIG_QUEUE_SIZE) queue_cursor = 0;
+        }
+    }
+    if (!fifo16_isfull(&packet_starts) && queued_bytes < CONFIG_QUEUE_SIZE) {
+        uint16_t s = current_packet_start;
+        int16_t e = queue_cursor-1; if (e == -1) e = CONFIG_QUEUE_SIZE-1;
+        uint16_t l;
+
+        if (s != e) {
+            l = (s < e) ? e - s + 1 : CONFIG_QUEUE_SIZE - s + e + 1;
+        } else {
+            l = 1;
+        }
+
+        if (l >= MIN_L) {
+            queue_height++;
+
+            fifo16_push(&packet_starts, s);
+            fifo16_push(&packet_lengths, l);
+
+            current_packet_start = queue_cursor;
+        }
+
+    }
+  }
+};
+
+// CBA Filesytem implementation
+class Filesystem : public RNS::Filesystem {
+
+public:
+  Filesystem() : RNS::Filesystem() {}
+  virtual ~Filesystem() {}
+
+protected:
+  virtual bool file_exists(const char* file_path) { return false; }
+  virtual const RNS::Bytes read_file(const char* file_path) { return RNS::Bytes::NONE; }
+  virtual bool write_file(const RNS::Bytes& data, const char* file_path) { return false; }
+  virtual bool remove_file(const char* file_path) { return false; }
+  virtual bool rename_file(const char* from_file_path, const char* to_file_path) { return false; }
+  virtual bool create_directory(const char* directory_path) { return false; }
+
+};
+
+// CBA logger callback
+void on_log(const char* msg, RNS::LogLevel level) {
+/*
+	Serial.print(RNS::getTimeString());
+	Serial.print(" [");
+	Serial.print(RNS::getLevelName(level));
+	Serial.print("] ");
+	Serial.println(msg);
+	Serial.flush();
+*/
+  String line = RNS::getTimeString() + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
+	Serial.print(line);
+	Serial.flush();
+
+#ifdef HAS_SDCARD
+	File file = SD.open("/logfile.txt", FILE_APPEND);
+	if (file) {
+    file.write((uint8_t*)line.c_str(), line.length());
+    file.close();
+  }
+#endif
+}
+
+// CBA receive packet callback
+void on_receive_packet(const RNS::Bytes& raw, const RNS::Interface& interface) {
+#ifdef HAS_SDCARD
+  RNS::extreme("Logging receive packet to SD");
+  String line = RNS::getTimeString() + String(" recv: ") + String(raw.toHex().c_str()) + "\n";
+	File file = SD.open("/tracefile.txt", FILE_APPEND);
+	if (file) {
+    file.write((uint8_t*)line.c_str(), line.length());
+    file.close();
+  }
+	RNS::Packet packet({RNS::Type::NONE}, raw);
+	if (packet.unpack()) {
+    String line = RNS::getTimeString() + String(" recv: ") + String(packet.dumpString().c_str()) + "\n";
+    File file = SD.open("/tracedetails.txt", FILE_APPEND);
+    if (file) {
+      file.write((uint8_t*)line.c_str(), line.length());
+      file.close();
+    }
+	}
+#endif
+}
+
+// CBA transmit packet callback
+void on_transmit_packet(const RNS::Bytes& raw, const RNS::Interface& interface) {
+#ifdef HAS_SDCARD
+  RNS::extreme("Logging transmit packet to SD");
+  String line = RNS::getTimeString() + String(" send: ") + String(raw.toHex().c_str()) + "\n";
+	File file = SD.open("/tracefile.txt", FILE_APPEND);
+	if (file) {
+    file.write((uint8_t*)line.c_str(), line.length());
+    file.close();
+  }
+	RNS::Packet packet({RNS::Type::NONE}, raw);
+	if (packet.unpack()) {
+    String line = RNS::getTimeString() + String(" send: ") + String(packet.dumpString().c_str()) + "\n";
+    File file = SD.open("/tracedetails.txt", FILE_APPEND);
+    if (file) {
+      file.write((uint8_t*)line.c_str(), line.length());
+      file.close();
+    }
+	}
+#endif
+}
+
+// CBA RNS
+RNS::Reticulum reticulum = {RNS::Type::NONE};
+LoRaInterface lora_interface;
+Filesystem filesystem;
 #endif
 
 void setup() {
@@ -188,6 +351,89 @@ void setup() {
   validate_status();
 
   if (op_mode != MODE_TNC) LoRa->setFrequency(0);
+
+  // CBA SD
+#ifdef HAS_SDCARD
+  pinMode(SDCARD_MISO, INPUT_PULLUP);
+  SDSPI.begin(SDCARD_SCLK, SDCARD_MISO, SDCARD_MOSI, SDCARD_CS);
+  if (!SD.begin(SDCARD_CS, SDSPI)) {
+      Serial.println("setupSDCard FAIL");
+  } else {
+      uint32_t cardSize = SD.cardSize() / (1024 * 1024);
+      Serial.print("setupSDCard PASS . SIZE = ");
+      Serial.print(cardSize / 1024.0);
+      Serial.println(" GB");
+      SD.remove("/logfile");
+      SD.remove("/logfile.txt");
+      SD.remove("/tracefile");
+      SD.remove("/tracedetails");
+      SD.remove("/tracefile.txt");
+      SD.remove("/tracedetails.txt");
+      Serial.println("DIR: /");
+      File root = SD.open("/");
+      File file = root.openNextFile();
+      while(file){
+          Serial.print("  FILE: ");
+          Serial.println(file.name());
+          file = root.openNextFile();
+      }
+  }
+  delay(3000);
+#endif
+
+#ifdef HAS_TRANSPORT
+  // CBA Start RNS
+  if (hw_ready) {
+    try {
+      RNS::setLogCallback(&on_log);
+      RNS::Transport::set_receive_packet_callback(on_receive_packet);
+      RNS::Transport::set_transmit_packet_callback(on_transmit_packet);
+
+      Serial.write("Starting RNS...\r\n");
+      RNS::loglevel(RNS::LOG_EXTREME);
+
+      RNS::Utilities::OS::register_filesystem(filesystem);
+
+      RNS::head("Registering LoRA Interface...", RNS::LOG_EXTREME);
+      lora_interface.mode(RNS::Type::Interface::MODE_GATEWAY);
+      RNS::Transport::register_interface(lora_interface);
+
+      RNS::head("Creating Reticulum instance...", RNS::LOG_EXTREME);
+      reticulum = RNS::Reticulum();
+      reticulum.transport_enabled(op_mode == MODE_TNC);
+      reticulum.probe_destination_enabled(true);
+      reticulum.start();
+
+      // CBA load/create local destination for admin node
+/*
+      RNS::Identity identity = {RNS::Type::NONE};
+      std::string local_identity_path = RNS::Reticulum::_storagepath + "/local_identity";
+      if (RNS::Utilities::OS::file_exists(local_identity_path.c_str())) {
+        identity = RNS::Identity::from_file(local_identity_path.c_str());
+      }
+      if (!identity) {
+        RNS::verbose("No valid local identity in storage, creating...");
+        identity = RNS::Identity();
+        identity.to_file(local_identity_path.c_str());
+      }
+      else {
+        RNS::verbose("Loaded local identity from storage");
+      }
+      RNS::Destination destination(identity, RNS::Type::Destination::IN, RNS::Type::Destination::SINGLE, "rnstransport", "local");
+*/
+      RNS::Destination destination(RNS::Transport::identity(), RNS::Type::Destination::IN, RNS::Type::Destination::SINGLE, "rnstransport", "local");
+    }
+    catch (std::exception& e) {
+      RNS::error("RNS startup failed: " + std::string(e.what()));
+    }
+
+    RNS::head("RNS is ready!", RNS::LOG_EXTREME);
+    //RNS::loglevel(RNS::LOG_NONE);
+  }
+  else {
+    RNS::head("RNS is inoperable because hardware is not ready!", RNS::LOG_ERROR);
+  }
+#endif
 }
 
 void lora_receive() {
@@ -199,6 +445,16 @@ void lora_receive() {
 }
 
 inline void kiss_write_packet() {
+
+#ifdef HAS_TRANSPORT
+  // CBA send packet received over LoRa to RNS in addition to connected client
+  RNS::Bytes data;
+  for (uint16_t i = 0; i < read_len; i++) {
+    data << pbuf[i];
+  }
+  lora_interface.on_incoming(data);
+#endif
+
   serial_write(FEND);
   serial_write(CMD_DATA);
   for (uint16_t i = 0; i < read_len; i++) {
@@ -445,6 +701,15 @@ void flushQueue(void) {
   #endif
   queue_flushing = false;
 }
+
+#if MCU_VARIANT == MCU_ESP32 || MCU_VARIANT == MCU_NRF52
+  #define _e 2.71828183
+  #define _S 10.0
+  float csma_slope(float u) { return (pow(_e,_S*u-_S/2.0))/(pow(_e,_S*u-_S/2.0)+1.0); }
+  void update_csma_p() {
+      csma_p = (uint8_t)((1.0-(csma_p_min+(csma_p_max-csma_p_min)*csma_slope(airtime)))*255.0);
+}
+#endif
 
 #define PHY_HEADER_LORA_SYMBOLS 8
 void add_airtime(uint16_t written) {
@@ -1139,6 +1404,7 @@ void validate_status() {
           }
         } else {
           hw_ready = false;
+          Serial.write("Error, eeprom checksum invalid\r\n");
           #if HAS_DISPLAY
             if (disp_ready) {
               device_init_done = true;
@@ -1148,6 +1414,7 @@ void validate_status() {
         }
       } else {
         hw_ready = false;
+        Serial.write("Error, eeprom hardware config invalid\r\n");
         #if HAS_DISPLAY
           if (disp_ready) {
             device_init_done = true;
@@ -1157,6 +1424,7 @@ void validate_status() {
       }
     } else {
       hw_ready = false;
+      Serial.write("Error, eeprom lock not set\r\n");
       #if HAS_DISPLAY
         if (disp_ready) {
           device_init_done = true;
@@ -1177,16 +1445,15 @@ void validate_status() {
   }
 }
 
-#if MCU_VARIANT == MCU_ESP32 || MCU_VARIANT == MCU_NRF52
-  #define _e 2.71828183
-  #define _S 10.0
-  float csma_slope(float u) { return (pow(_e,_S*u-_S/2.0))/(pow(_e,_S*u-_S/2.0)+1.0); }
-  void update_csma_p() {
-      csma_p = (uint8_t)((1.0-(csma_p_min+(csma_p_max-csma_p_min)*csma_slope(airtime)))*255.0);
-}
+void loop() {
+
+#ifdef HAS_TRANSPORT
+  // CBA
+  if (reticulum) {
+	  reticulum.loop();
+  }
 #endif
 
-void loop() {
   if (radio_online) {
     #if MCU_VARIANT == MCU_ESP32
       if (packet_ready) {
