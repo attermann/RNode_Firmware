@@ -27,6 +27,9 @@
 #include <SPI.h>
 #include "Utilities.h"
 
+// CBA Filesystem
+#include "Filesystem.h"
+
 // CBA SD
 #if HAS_SDCARD
 #include <SD.h>
@@ -120,23 +123,6 @@ private:
   }
 };
 
-// CBA Filesytem implementation
-class Filesystem : public RNS::Filesystem {
-
-public:
-  Filesystem() : RNS::Filesystem() {}
-  virtual ~Filesystem() {}
-
-protected:
-  virtual bool file_exists(const char* file_path) { return false; }
-  virtual const RNS::Bytes read_file(const char* file_path) { return RNS::Bytes::NONE; }
-  virtual bool write_file(const RNS::Bytes& data, const char* file_path) { return false; }
-  virtual bool remove_file(const char* file_path) { return false; }
-  virtual bool rename_file(const char* from_file_path, const char* to_file_path) { return false; }
-  virtual bool create_directory(const char* directory_path) { return false; }
-
-};
-
 // CBA logger callback
 void on_log(const char* msg, RNS::LogLevel level) {
 /*
@@ -147,7 +133,12 @@ void on_log(const char* msg, RNS::LogLevel level) {
 	Serial.println(msg);
 	Serial.flush();
 */
-  String line = RNS::getTimeString() + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
+  //String line = RNS::getTimeString() + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
+  //String line = String(millis()) + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
+  //String line = String(millis()/3600000) + ":" + String(millis()/60000) + ":" + String(millis()/1000) + "." + String(millis()%1000) + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
+  char time[16];
+  snprintf(time, sizeof(time), "%02d:%02d:%02d.%03d", millis()/3600000, (millis()/60000)%60, (millis()/1000)%60, millis()%1000);
+  String line = time + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
 	Serial.print(line);
 	Serial.flush();
 
@@ -240,6 +231,12 @@ void setup() {
   fifo_init(&serialFIFO, serialBuffer, CONFIG_UART_BUFFER_SIZE);
 
   Serial.begin(serial_baudrate);
+
+  // CBA Safely wait for serial initialization
+  while (!Serial) {
+    if (millis() > 2000)
+      break;
+  }
 
   #if BOARD_MODEL != BOARD_RAK4631 && BOARD_MODEL != BOARD_RNODE_NG_22
   // Some boards need to wait until the hardware UART is set up before booting
@@ -398,7 +395,10 @@ void setup() {
 
       Serial.write("Starting RNS...\r\n");
       RNS::loglevel(RNS::LOG_EXTREME);
+      //RNS::loglevel(RNS::LOG_MEM);
 
+      RNS::head("Registering Filesystem instance...", RNS::LOG_EXTREME);
+      filesystem.init();
       RNS::Utilities::OS::register_filesystem(filesystem);
 
       RNS::head("Registering LoRA Interface...", RNS::LOG_EXTREME);
@@ -434,7 +434,18 @@ void setup() {
       RNS::error("RNS startup failed: " + std::string(e.what()));
     }
 
-    RNS::head("RNS is ready!", RNS::LOG_EXTREME);
+    RNS::head("RNS is READY!", RNS::LOG_EXTREME);
+    if (op_mode == MODE_TNC) {
+      RNS::head("RNS transport mode is ENABLED", RNS::LOG_EXTREME);
+      RNS::extreme(std::string("Frequency: " + std::to_string(lora_freq)) + " Hz");
+      RNS::extreme(std::string("Bandwidth: " + std::to_string(lora_bw)) + " Hz");
+      RNS::extreme(std::string("TX Power: " + std::to_string(lora_txp)) + " dBm");
+      RNS::extreme(std::string("Spreading Factor: " + std::to_string(lora_sf)));
+      RNS::extreme(std::string("Coding Rate: " + std::to_string(lora_sf)));
+    }
+    else {
+      RNS::head("RNS transport mode is DISABLED", RNS::LOG_EXTREME);
+    }
     //RNS::loglevel(RNS::LOG_NONE);
   }
   else {

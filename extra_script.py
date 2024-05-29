@@ -54,8 +54,9 @@ def post_upload(source, target, env):
     elif (platform == "nordicnrf52"):
         time.sleep(5)
         # device provisioning is incomplete and only currently appropriate for 915MHz T-Beam
+        #device_wipe(env)
         #device_provision(env)
-        #firmware_hash(source, env)
+        firmware_hash(source, env)
         # firmware pacakaging is incomplete due to missing console image
         #firmware_package(env)
 
@@ -80,6 +81,11 @@ env.AddPreAction("upload", pre_upload)
 env.AddPostAction("upload", post_upload)
 env.AddPostAction("clean", post_clean)
 
+def device_wipe(env):
+    # Device wipe
+    print("Wiping device...")
+    env.Execute("rnodeconf --eeprom-wipe " + env.subst("$UPLOAD_PORT"))
+
 def device_provision(env):
     # Device provision
     print("Provisioning device...")
@@ -92,21 +98,35 @@ def device_provision(env):
     elif (platform == "nordicnrf52"):
         if (board == "wiscore_rak4631"):
             print("Provisioning rak4631 device...")
-            env.Execute("rnodeconf --platform 70 --product f0 --model ff --hwrev 1 --rom " + env.subst("$UPLOAD_PORT"))
+            env.Execute("rnodeconf --product 10 --model 12 --hwrev 1 --rom " + env.subst("$UPLOAD_PORT"))
 
 def firmware_hash(source, env):
     # Firmware hash
     print("Updating firmware hash...")
     source_file = source[0].get_abspath()
-    print("source_file:", source_file)
-    firmware_data = open(source_file, "rb").read()
-    calc_hash = hashlib.sha256(firmware_data[0:-32]).digest()
-    part_hash = firmware_data[-32:]
-    if calc_hash == part_hash:
-        hex_hash = part_hash.hex()
+    platform = env.GetProjectOption("platform")
+    if (platform == "nordicnrf52"):
+        build_dir = env.subst("$BUILD_DIR")
+        env.Execute("cd " + build_dir + "; unzip -o " + source_file + " firmware.bin")
+        #source_file.replace(".zip", ".bin")
+        source_file = build_dir + "/firmware.bin";
+        print("source_file:", source_file)
+        firmware_data = open(source_file, "rb").read()
+        calc_hash = hashlib.sha256(firmware_data).digest()
+        hex_hash = calc_hash.hex()
+        print("firmware_hash:", hex_hash)
         env.Execute("rnodeconf --firmware-hash " + hex_hash + " " + env.subst("$UPLOAD_PORT"))
     else:
-        print("Hash calculation failed!")
+        print("source_file:", source_file)
+        firmware_data = open(source_file, "rb").read()
+        calc_hash = hashlib.sha256(firmware_data[0:-32]).digest()
+        part_hash = firmware_data[-32:]
+        hex_hash = calc_hash.hex()
+        print("firmware_hash:", hex_hash)
+        if (calc_hash == part_hash):
+            env.Execute("rnodeconf --firmware-hash " + hex_hash + " " + env.subst("$UPLOAD_PORT"))
+        else:
+            print("Calculated hash does not match!")
 
 def firmware_package(env):
     platform = env.GetProjectOption("platform")
