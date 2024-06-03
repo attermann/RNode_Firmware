@@ -133,12 +133,7 @@ void on_log(const char* msg, RNS::LogLevel level) {
 	Serial.println(msg);
 	Serial.flush();
 */
-  //String line = RNS::getTimeString() + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
-  //String line = String(millis()) + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
-  //String line = String(millis()/3600000) + ":" + String(millis()/60000) + ":" + String(millis()/1000) + "." + String(millis()%1000) + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
-  char time[16];
-  snprintf(time, sizeof(time), "%02d:%02d:%02d.%03d", millis()/3600000, (millis()/60000)%60, (millis()/1000)%60, millis()%1000);
-  String line = time + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
+  String line = RNS::getTimeString() + String(" [") + RNS::getLevelName(level) + "] " + msg + "\n";
 	Serial.print(line);
 	Serial.flush();
 
@@ -387,7 +382,8 @@ void setup() {
 
 #ifdef HAS_TRANSPORT
   // CBA Start RNS
-  if (hw_ready) {
+  //if (hw_ready) {
+  if (true) {
     try {
       RNS::setLogCallback(&on_log);
       RNS::Transport::set_receive_packet_callback(on_receive_packet);
@@ -397,9 +393,23 @@ void setup() {
       RNS::loglevel(RNS::LOG_EXTREME);
       //RNS::loglevel(RNS::LOG_MEM);
 
-      RNS::head("Registering Filesystem instance...", RNS::LOG_EXTREME);
+      RNS::head("Initializing Filesystem ...", RNS::LOG_EXTREME);
       filesystem.init();
+      Serial.println("done innit");
+      RNS::extreme("Registering Filesystem...");
       RNS::Utilities::OS::register_filesystem(filesystem);
+      RNS::extreme("Registered Filesystem");
+
+/*
+      std::list<std::string> files = filesystem.get_files("/");
+      for (auto& file : files) {
+        Serial.print("  FILE: ");
+        Serial.println(file.c_str());
+        //RNS::Bytes content = filesystem.read_file(file.c_str());
+        //RNS::debug(std::string("FILE: ") + file);
+        //RNS::debug(content.toString());
+      }
+*/
 
       RNS::head("Registering LoRA Interface...", RNS::LOG_EXTREME);
       lora_interface.mode(RNS::Type::Interface::MODE_GATEWAY);
@@ -444,7 +454,7 @@ void setup() {
       RNS::extreme(std::string("Coding Rate: " + std::to_string(lora_sf)));
     }
     else {
-      RNS::head("RNS transport mode is DISABLED", RNS::LOG_EXTREME);
+      RNS::head("RNS transport mode is DISABLED (must configure TNC mode to enable)", RNS::LOG_EXTREME);
     }
     //RNS::loglevel(RNS::LOG_NONE);
   }

@@ -6,76 +6,133 @@
 
 #if MCU_VARIANT == MCU_ESP32
 #include <FS.h>
-#include <SPIFFS.h>
+#include <LittleFS.h>
 #elif MCU_VARIANT == MCU_NRF52
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 using namespace Adafruit_LittleFS_Namespace;
 #endif
 
-void listDir(char * dir){
-  Serial.print("DIR: ");
-  Serial.println(dir);
+void listDir(const char* dir, const char* prefix) {
+	RNS::extreme("Listing filesystem...");
+	Serial.print(prefix);
+	//Serial.print("DIR: ");
+	Serial.print(dir);
+	Serial.println("/");
+	std::string pre(prefix);
+	pre.append("  ");
+	try {
 #if MCU_VARIANT == MCU_ESP32
-  File root = SPIFFS.open(dir);
-  File file = root.openNextFile();
-  while(file){
-      Serial.print("  FILE: ");
-      Serial.println(file.name());
-      file = root.openNextFile();
-  }
+		File root = LittleFS.open(dir);
 #elif MCU_VARIANT == MCU_NRF52
-  File root = InternalFS.open(dir);
-  File file = root.openNextFile();
-  while(file){
-      Serial.print("  FILE: ");
-      Serial.println(file.name());
-      file = root.openNextFile();
-  }
+		File root = InternalFS.open(dir);
 #endif
+		File file = root.openNextFile();
+		while (file) {
+			if (file.isDirectory()) {
+				listDir(file.name(), pre.c_str());
+			}
+			else {
+				Serial.print(pre.c_str());
+				//Serial.print("FILE: ");
+				Serial.println(file.name());
+			}
+			file = root.openNextFile();
+		}
+	}
+	catch (std::exception& e) {
+		RNS::error("listDir Exception: " + std::string(e.what()));
+	}
+	RNS::extreme("Finished listing");
 }
 
-bool Filesystem::init() {
-	RNS::extreme("Filesystem initializing...");
-
+void dumpDir(const char* dir) {
+	RNS::extreme("Dumping filesystem...");
+	Serial.print("DIR: ");
+	Serial.print(dir);
+	Serial.println("/");
+	try {
 #if MCU_VARIANT == MCU_ESP32
-	// Setup filesystem
-	RNS::info("SPIFFS mounting filesystem");
-	if (!SPIFFS.begin(true, "")){
-		RNS::error("SPIFFS filesystem mount failed");
-		return;
-	}
-	uint32_t size = SPIFFS.totalBytes() / (1024 * 1024);
-	Serial.print("size: ");
-	Serial.print(size);
-	Serial.println(" MB");
-	uint32_t used = SPIFFS.usedBytes() / (1024 * 1024);
-	Serial.print("used: ");
-	Serial.print(used);
-	Serial.println(" MB");
-	// ensure filesystem is writable and format if not
-	RNS::Bytes test;
-	if (!OS::write_file(test, "/test")) {
-		RNS::info("SPIFFS filesystem is being formatted, please wait...");
-		SPIFFS.format();
-	}
-	else {
-		OS::remove_file("/test");
-	}
-	debug("SPIFFS filesystem is ready");
+		File root = LittleFS.open(dir);
 #elif MCU_VARIANT == MCU_NRF52
-	// Initialize Internal File System
-	RNS::info("InternalFS mounting filesystem");
-	InternalFS.begin();
-	RNS::info("InternalFS filesystem is ready");
+		File root = InternalFS.open(dir);
 #endif
-		listDir("/");
-
+		File file = root.openNextFile();
+		while (file) {
+			if (file.isDirectory()) {
+				dumpDir(file.name());
+			}
+			else {
+				Serial.print("\nFILE: ");
+				Serial.println(file.name());
+				char data[4096];
+				size_t size = file.size();
+				size_t read = file.readBytes(data, (size < sizeof(data)) ? size : sizeof(data));
+				Serial.write(data, read);
+				Serial.println("");
+			}
+			file = root.openNextFile();
+		}
+	}
+	catch (std::exception& e) {
+		RNS::error("dumpDir Exception: " + std::string(e.what()));
+	}
+	RNS::extreme("Finished dumping");
 }
 
-bool Filesystem::file_exists(const char* file_path) {
+/*virtua*/ bool Filesystem::init() {
+	RNS::extreme("Initializing filesystem...");
+
+	try {
 #if MCU_VARIANT == MCU_ESP32
-	File file = SPIFFS.open(file_path, FILE_READ);
+		// Setup filesystem
+		RNS::info("LittleFS mounting filesystem");
+		if (!LittleFS.begin(true, "")) {
+			RNS::error("LittleFS filesystem mount failed");
+			return false;
+		}
+/*
+		uint32_t size = LittleFS.totalBytes() / 1024;
+		Serial.print("size: ");
+		Serial.print(size);
+		Serial.println(" kB");
+		uint32_t used = LittleFS.usedBytes() / 1024;
+		Serial.print("used: ");
+		Serial.print(used);
+		Serial.println(" kB");
+		// ensure filesystem is writable and format if not
+		RNS::Bytes test;
+		if (!write_file(test, "/test")) {
+			RNS::info("LittleFS filesystem is being formatted, please wait...");
+			LittleFS.format();
+		}
+		else {
+			remove_file("/test");
+		}
+*/
+		RNS::debug("LittleFS filesystem is ready");
+#elif MCU_VARIANT == MCU_NRF52
+		// Initialize Internal File System
+		RNS::info("InternalFS mounting filesystem");
+		InternalFS.begin();
+		RNS::info("InternalFS filesystem is ready");
+#endif
+	}
+	catch (std::exception& e) {
+		//RNS::error("Filesystem init Exception: " + std::string(e.what()));
+	}
+
+	// CBA DEBUG
+	//listDir("/", "");
+	//dumpDir("/");
+
+	RNS::extreme("Finished initializing");
+}
+
+/*virtua*/ bool Filesystem::file_exists(const char* file_path) {
+	RNS::extreme("file_exists: checking for existence of file " + std::string(file_path));
+#if MCU_VARIANT == MCU_ESP32
+	File file = LittleFS.open(file_path, FILE_READ);
 	if (file) {
 #elif MCU_VARIANT == MCU_NRF52
 	File file(InternalFS);
@@ -98,10 +155,11 @@ bool Filesystem::file_exists(const char* file_path) {
 	}
 }
 
-const RNS::Bytes Filesystem::read_file(const char* file_path) {
+/*virtua*/ const RNS::Bytes Filesystem::read_file(const char* file_path) {
+	RNS::extreme("read_file: reading from file " + std::string(file_path));
     RNS::Bytes data;
 #if MCU_VARIANT == MCU_ESP32
-	File file = SPIFFS.open(file_path, FILE_READ);
+	File file = LittleFS.open(file_path, FILE_READ);
 	if (file) {
 		size_t size = file.size();
 		size_t read = file.readBytes((char*)data.writable(size), size);
@@ -134,15 +192,18 @@ const RNS::Bytes Filesystem::read_file(const char* file_path) {
     return data;
 }
 
-bool Filesystem::write_file(const RNS::Bytes& data, const char* file_path) {
+/*virtua*/ bool Filesystem::write_file(const RNS::Bytes& data, const char* file_path) {
+	RNS::extreme("write_file: writing to file " + std::string(file_path));
     bool success = false;
 #if MCU_VARIANT == MCU_ESP32
-	File file = SPIFFS.open(file_path, FILE_WRITE);
+	File file = LittleFS.open(file_path, FILE_WRITE);
 	if (file) {
 		size_t wrote = file.write(data.data(), data.size());
 #elif MCU_VARIANT == MCU_NRF52
 	File file(InternalFS);
 	file.open(file_path, FILE_O_WRITE);
+	// Seek to beginning to overwrite
+	file.seek(0);
 	if (file) {
 		size_t wrote = file.write(data.data(), data.size());
 #else
@@ -169,9 +230,10 @@ bool Filesystem::write_file(const RNS::Bytes& data, const char* file_path) {
     return success;
 }
 
-bool Filesystem::remove_file(const char* file_path) {
+/*virtua*/ bool Filesystem::remove_file(const char* file_path) {
+	RNS::extreme("remove_file: removing file " + std::string(file_path));
 #if MCU_VARIANT == MCU_ESP32
-	return SPIFFS.remove(file_path);
+	return LittleFS.remove(file_path);
 #elif MCU_VARIANT == MCU_NRF52
 	return InternalFS.remove(file_path);
 #else
@@ -179,9 +241,10 @@ bool Filesystem::remove_file(const char* file_path) {
 #endif
 }
 
-bool Filesystem::rename_file(const char* from_file_path, const char* to_file_path) {
+/*virtua*/ bool Filesystem::rename_file(const char* from_file_path, const char* to_file_path) {
+	RNS::extreme("rename_file: renaming file " + std::string(from_file_path) + " to " + std::string(to_file_path));
 #if MCU_VARIANT == MCU_ESP32
-	return SPIFFS.rename(from_file_path, to_file_path);
+	return LittleFS.rename(from_file_path, to_file_path);
 #elif MCU_VARIANT == MCU_NRF52
 	return InternalFS.rename(from_file_path, to_file_path);
 #else
@@ -189,20 +252,88 @@ bool Filesystem::rename_file(const char* from_file_path, const char* to_file_pat
 #endif
 }
 
-bool Filesystem::create_directory(const char* directory_path) {
+/*virtua*/ bool Filesystem::directory_exists(const char* directory_path) {
+	RNS::extreme("directory_exists: checking for existence of directory " + std::string(directory_path));
 #if MCU_VARIANT == MCU_ESP32
-	if (!SPIFFS.mkdir(directory_path)) {
+	File file = LittleFS.open(directory_path, FILE_READ);
+	if (file) {
+		bool is_directory = file.isDirectory();
+		file.close();
+		return is_directory;
+	}
+#elif MCU_VARIANT == MCU_NRF52
+	File file(InternalFS);
+	file.open(directory_path, FILE_O_READ);
+	if (file) {
+		bool is_directory = file.isDirectory();
+		file.close();
+		return is_directory;
+	}
+#else
+	if (false) {
+		return false;
+	}
+#endif
+	else {
+		return false;
+	}
+}
+
+/*virtua*/ bool Filesystem::create_directory(const char* directory_path) {
+	RNS::extreme("create_directory: creating directory " + std::string(directory_path));
+#if MCU_VARIANT == MCU_ESP32
+	if (!LittleFS.mkdir(directory_path)) {
 		RNS::error("create_directory: failed to create directorty " + std::string(directory_path));
 		return false;
 	}
 	return true;
 #elif MCU_VARIANT == MCU_NRF52
 	if (!InternalFS.mkdir(directory_path)) {
-		RNS::error("create_directory: failed to create directorty " + std::string(directory_path));
+		RNS::error("create_directory: failed to create directory " + std::string(directory_path));
 		return false;
 	}
 	return true;
 #else
 	return false;
+#endif
+}
+
+/*virtua*/ bool Filesystem::remove_directory(const char* directory_path) {
+	RNS::extreme("remove_directory: removing directory " + std::string(directory_path));
+#if MCU_VARIANT == MCU_ESP32
+	//if (!LittleFS.rmdir_r(directory_path)) {
+	if (!LittleFS.rmdir(directory_path)) {
+		RNS::error("remove_directory: failed to remove directorty " + std::string(directory_path));
+		return false;
+	}
+	return true;
+#elif MCU_VARIANT == MCU_NRF52
+	if (!InternalFS.rmdir_r(directory_path)) {
+		RNS::error("remove_directory: failed to remove directory " + std::string(directory_path));
+		return false;
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
+/*virtua*/ std::list<std::string> Filesystem::list_directory(const char* directory_path) {
+	RNS::extreme("list_directory: listing directory " + std::string(directory_path));
+	std::list<std::string> files;
+#if MCU_VARIANT == MCU_ESP32
+	File root = LittleFS.open(directory_path);
+	File file = root.openNextFile();
+	while (file) {
+		files.push_back(std::string(directory_path) + file.name());
+		file = root.openNextFile();
+	}
+#elif MCU_VARIANT == MCU_NRF52
+	File root = InternalFS.open(directory_path);
+	File file = root.openNextFile();
+	while (file) {
+		files.push_back(std::string(directory_path) + file.name());
+		file = root.openNextFile();
+	}
 #endif
 }

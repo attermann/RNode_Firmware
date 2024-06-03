@@ -18,15 +18,27 @@ def target_package(target, source, env):
     board = env.GetProjectOption("board")
     firmware_package(env)
 
-env.AddCustomTarget(
-    name="package",
-    dependencies="$BUILD_DIR/${PROGNAME}.bin",
-    actions=[
-        target_package
-    ],
-    title="Package",
-    description="Package firmware for delivery"
-)
+platform = env.GetProjectOption("platform")
+if (platform == "espressif32"):
+    env.AddCustomTarget(
+        name="package",
+        dependencies="$BUILD_DIR/${PROGNAME}.bin",
+        actions=[
+            target_package
+        ],
+        title="Package",
+        description="Package esp32 firmware for delivery"
+    )
+elif (platform == "nordicnrf52"):
+    env.AddCustomTarget(
+        name="package",
+        dependencies="$BUILD_DIR/${PROGNAME}.zip",
+        actions=[
+            target_package
+        ],
+        title="Package",
+        description="Package nrf52 firmware for delivery"
+    )
 
 #
 # Upload actions
@@ -152,20 +164,20 @@ def firmware_package(env):
     if (platform == "espressif32"):
         #env.Execute("cp " + packages_dir + "/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + variant + ".boot_app0")
         env.Execute("cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + variant + ".boot_app0")
+        env.Execute("cp " + project_dir + "/Release/esptool/esptool.py " + build_dir + "/esptool.py")
+        env.Execute("cp " + project_dir + "/Release/console_image.bin " + build_dir + "/console_image.bin")
+        env.Execute("cp " + build_dir + "/firmware.bin " + build_dir + "/rnode_firmware_" + variant + ".bin")
+        env.Execute("cp " + build_dir + "/bootloader.bin " + build_dir + "/rnode_firmware_" + variant + ".bootloader")
+        env.Execute("cp " + build_dir + "/partitions.bin " + build_dir + "/rnode_firmware_" + variant + ".partitions")
+        env.Execute("rm " + project_dir + "/Release/rnode_firmware_" + variant + ".zip")
+        zip_cmd = "zip --move --junk-paths "
+        zip_cmd += project_dir + "/Release/rnode_firmware_" + variant + ".zip "
+        zip_cmd += build_dir + "/esptool.py "
+        zip_cmd += build_dir + "/console_image.bin "
+        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".boot_app0 "
+        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bin "
+        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bootloader "
+        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".partitions "
+        env.Execute(zip_cmd)
     elif (platform == "nordicnrf52"):
-        pass
-    env.Execute("cp " + project_dir + "/Release/esptool/esptool.py " + build_dir + "/esptool.py")
-    env.Execute("cp " + project_dir + "/Release/console_image.bin " + build_dir + "/console_image.bin")
-    env.Execute("cp " + build_dir + "/firmware.bin " + build_dir + "/rnode_firmware_" + variant + ".bin")
-    env.Execute("cp " + build_dir + "/bootloader.bin " + build_dir + "/rnode_firmware_" + variant + ".bootloader")
-    env.Execute("cp " + build_dir + "/partitions.bin " + build_dir + "/rnode_firmware_" + variant + ".partitions")
-    env.Execute("rm " + project_dir + "/Release/rnode_firmware_" + variant + ".zip")
-    zip_cmd = "zip --move --junk-paths "
-    zip_cmd += project_dir + "/Release/rnode_firmware_" + variant + ".zip "
-    zip_cmd += build_dir + "/esptool.py "
-    zip_cmd += build_dir + "/console_image.bin "
-    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".boot_app0 "
-    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bin "
-    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bootloader "
-    zip_cmd += build_dir + "/rnode_firmware_" + variant + ".partitions "
-    env.Execute(zip_cmd)
+        env.Execute("cp " + build_dir + "/firmware.zip " + project_dir + "/Release/rnode_firmware_" + variant + ".zip")
