@@ -4,6 +4,9 @@ import shutil
 
 Import("env")
 
+env.Replace(PROGNAME="rnode_firmware_%s" % env.GetProjectOption("custom_variant"))
+print("PROGNAME:", env.subst("$PROGNAME"))
+
 #
 # Custom targets
 #
@@ -12,13 +15,14 @@ def target_package(target, source, env):
     print("target_package...")
     print("Platform:", env.GetProjectOption("platform"))
     print("Board:", env.GetProjectOption("board"))
-    print("Variant:", env.GetProjectOption("variant"))
+    print("Variant:", env.GetProjectOption("custom_variant"))
     # do some actions
     platform = env.GetProjectOption("platform")
     board = env.GetProjectOption("board")
     firmware_package(env)
 
 platform = env.GetProjectOption("platform")
+print("Platform:", platform)
 if (platform == "espressif32"):
     env.AddCustomTarget(
         name="package",
@@ -30,6 +34,9 @@ if (platform == "espressif32"):
         description="Package esp32 firmware for delivery"
     )
 elif (platform == "nordicnrf52"):
+    # remove --specs=nano.specs to allow exceptions to work
+    if '--specs=nano.specs' in env['LINKFLAGS']:
+        env['LINKFLAGS'].remove('--specs=nano.specs')
     env.AddCustomTarget(
         name="package",
         dependencies="$BUILD_DIR/${PROGNAME}.zip",
@@ -65,8 +72,7 @@ def post_upload(source, target, env):
         #firmware_package(env)
     elif (platform == "nordicnrf52"):
         time.sleep(5)
-        # device provisioning is incomplete and only currently appropriate for 915MHz T-Beam
-        #device_wipe(env)
+        # device provisioning is incomplete and only currently appropriate for 915MHz RAK4631
         #device_provision(env)
         firmware_hash(source, env)
         # firmware pacakaging is incomplete due to missing console image
@@ -88,6 +94,7 @@ def post_clean(source, target, env):
     workspace_dir = env.subst("$PLATFORMIO_WORKSPACE_DIR")
     print("workspace_dir:", workspace_dir)
     #shutil.rmtree(directory_path)
+    env.Execute("rm -f " + project_dir + "/Release/" + project_dir + "/" + env.subst("$PROGNAME") + ".zip")
 
 env.AddPreAction("upload", pre_upload)
 env.AddPostAction("upload", post_upload)
@@ -102,7 +109,9 @@ def device_provision(env):
     # Device provision
     print("Provisioning device...")
     platform = env.GetProjectOption("platform")
+    print("Platform:", platform)
     board = env.GetProjectOption("board")
+    print("Board:", board)
     if (platform == "espressif32"):
         if (board == "ttgo-t-beam"):
             print("Provisioning t-beam device...")
@@ -117,11 +126,12 @@ def firmware_hash(source, env):
     print("Updating firmware hash...")
     source_file = source[0].get_abspath()
     platform = env.GetProjectOption("platform")
+    print("Platform:", platform)
     if (platform == "nordicnrf52"):
         build_dir = env.subst("$BUILD_DIR")
-        env.Execute("cd " + build_dir + "; unzip -o " + source_file + " firmware.bin")
+        env.Execute("cd " + build_dir + "; unzip -o " + source_file + " " + env.subst("$PROGNAME") + ".bin")
         #source_file.replace(".zip", ".bin")
-        source_file = build_dir + "/firmware.bin";
+        source_file = build_dir + "/" + env.subst("$PROGNAME") + ".bin";
         print("source_file:", source_file)
         firmware_data = open(source_file, "rb").read()
         calc_hash = hashlib.sha256(firmware_data).digest()
@@ -146,10 +156,11 @@ def firmware_package(env):
     # Firmware package
     print("Building firmware package...")
     platform = env.GetProjectOption("platform")
+    print("Platform:", platform)
     board = env.GetProjectOption("board")
-    print("board:", board)
-    variant = env.GetProjectOption("variant")
-    print("variant:", variant)
+    print("Board:", board)
+    variant = env.GetProjectOption("custom_variant")
+    print("custom_variant:", variant)
     core_dir = env.subst("$CORE_DIR")
     print("core_dir:", core_dir)
     packages_dir = env.subst("$PACKAGES_DIR")
@@ -164,20 +175,18 @@ def firmware_package(env):
     if (platform == "espressif32"):
         #env.Execute("cp " + packages_dir + "/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + variant + ".boot_app0")
         env.Execute("cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin " + build_dir + "/rnode_firmware_" + variant + ".boot_app0")
-        env.Execute("cp " + project_dir + "/Release/esptool/esptool.py " + build_dir + "/esptool.py")
-        env.Execute("cp " + project_dir + "/Release/console_image.bin " + build_dir + "/console_image.bin")
-        env.Execute("cp " + build_dir + "/firmware.bin " + build_dir + "/rnode_firmware_" + variant + ".bin")
-        env.Execute("cp " + build_dir + "/bootloader.bin " + build_dir + "/rnode_firmware_" + variant + ".bootloader")
-        env.Execute("cp " + build_dir + "/partitions.bin " + build_dir + "/rnode_firmware_" + variant + ".partitions")
-        env.Execute("rm " + project_dir + "/Release/rnode_firmware_" + variant + ".zip")
-        zip_cmd = "zip --move --junk-paths "
+        env.Execute("cp " + build_dir + "/bootloader.bin " + build_dir + "/" + env.subst("$PROGNAME") + ".bootloader")
+        env.Execute("cp " + build_dir + "/partitions.bin " + build_dir + "/" + env.subst("$PROGNAME") + ".partitions")
+        env.Execute("rm -f " + project_dir + "/Release/" + env.subst("$PROGNAME") + ".zip")
+        zip_cmd = "zip --junk-paths "
         zip_cmd += project_dir + "/Release/rnode_firmware_" + variant + ".zip "
-        zip_cmd += build_dir + "/esptool.py "
-        zip_cmd += build_dir + "/console_image.bin "
-        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".boot_app0 "
-        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bin "
-        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".bootloader "
-        zip_cmd += build_dir + "/rnode_firmware_" + variant + ".partitions "
+        zip_cmd += project_dir + "/Release/esptool/esptool.py "
+        zip_cmd += project_dir + "/Release/console_image.bin "
+        zip_cmd += build_dir + "/" + env.subst("$PROGNAME") + ".bin "
+        zip_cmd += build_dir + "/" + env.subst("$PROGNAME") + ".boot_app0 "
+        zip_cmd += build_dir + "/" + env.subst("$PROGNAME") + ".bootloader "
+        zip_cmd += build_dir + "/" + env.subst("$PROGNAME") + ".partitions "
         env.Execute(zip_cmd)
     elif (platform == "nordicnrf52"):
-        env.Execute("cp " + build_dir + "/firmware.zip " + project_dir + "/Release/rnode_firmware_" + variant + ".zip")
+        env.Execute("cp " + build_dir + "/" + env.subst("$PROGNAME") + ".zip " + project_dir + "/Release/.")
+    env.Execute("python " + project_dir + "/release_hashes.py > " + project_dir + "/Release/release.json")

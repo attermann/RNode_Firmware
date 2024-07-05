@@ -1,4 +1,4 @@
-#!/bin/python
+#!/usr/bin/env python3
 
 # Copyright (C) 2023, Mark Qvist
 

@@ -14,8 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // CBA Reticulum includes must come before local to avoid collision with local defines
-#define HAS_TRANSPORT
-#ifdef HAS_TRANSPORT
+#ifdef HAS_RNS
 #include <Transport.h>
 #include <Reticulum.h>
 #include <Interface.h>
@@ -66,7 +65,7 @@ char sbuf[128];
   bool packet_ready = false;
 #endif
 
-#ifdef HAS_TRANSPORT
+#ifdef HAS_RNS
 // CBA LoRa interface
 class LoRaInterface : public RNS::Interface {
 public:
@@ -84,14 +83,14 @@ public:
 	virtual inline std::string toString() const { return "LoRaInterface[" + name() + "]"; }
 	virtual void on_incoming(const RNS::Bytes& data) {
     // CBA NOTE header is already strippped from packet by receive_callback function
-    RNS::extreme("LoRaInterface.on_incoming: data: " + data.toHex());
+    TRACE("LoRaInterface.on_incoming: data: " + data.toHex());
     Interface::on_incoming(data);
   }
 private:
 	virtual void on_outgoing(const RNS::Bytes& data) {
     // CBA NOTE header will be addded later by transmit function
-    RNS::extreme("LoRaInterface.on_outgoing: data: " + data.toHex());
-    RNS::extreme("LoRaInterface.on_outgoing: adding packet to outgoing queue...");
+    TRACE("LoRaInterface.on_outgoing: data: " + data.toHex());
+    TRACE("LoRaInterface.on_outgoing: adding packet to outgoing queue...");
     for (size_t i = 0; i < data.size(); i++) {
         if (queue_height < CONFIG_QUEUE_MAX_LENGTH && queued_bytes < CONFIG_QUEUE_SIZE) {
             queued_bytes++;
@@ -149,7 +148,7 @@ void on_log(const char* msg, RNS::LogLevel level) {
 // CBA receive packet callback
 void on_receive_packet(const RNS::Bytes& raw, const RNS::Interface& interface) {
 #ifdef HAS_SDCARD
-  RNS::extreme("Logging receive packet to SD");
+  TRACE("Logging receive packet to SD");
   String line = RNS::getTimeString() + String(" recv: ") + String(raw.toHex().c_str()) + "\n";
 	File file = SD.open("/tracefile.txt", FILE_APPEND);
 	if (file) {
@@ -171,7 +170,7 @@ void on_receive_packet(const RNS::Bytes& raw, const RNS::Interface& interface) {
 // CBA transmit packet callback
 void on_transmit_packet(const RNS::Bytes& raw, const RNS::Interface& interface) {
 #ifdef HAS_SDCARD
-  RNS::extreme("Logging transmit packet to SD");
+  TRACE("Logging transmit packet to SD");
   String line = RNS::getTimeString() + String(" send: ") + String(raw.toHex().c_str()) + "\n";
 	File file = SD.open("/tracefile.txt", FILE_APPEND);
 	if (file) {
@@ -380,42 +379,59 @@ void setup() {
   delay(3000);
 #endif
 
-#ifdef HAS_TRANSPORT
-  // CBA Start RNS
-  //if (hw_ready) {
-  if (true) {
-    try {
+#ifdef HAS_RNS
+  try {
+    // CBA Init filesystem
+    filesystem.init();
+
+    HEAD("Registering filesystem...", RNS::LOG_TRACE);
+    RNS::Utilities::OS::register_filesystem(filesystem);
+
+#ifndef DNDEBUG
+    //filesystem.remove_directory("/cache");
+    //filesystem.remove_file("/destination_table");
+    //filesystem.reformat();
+    TRACE("Listing filesystem...");
+    Filesystem::listDir("/", "");
+    TRACE("Finished listing");
+    //TRACE("Dumping filesystem...");
+    //Filesystem::dumpDir("/");
+    //TRACE("Finished dumping");
+    //reticulum.clear_caches();
+
+    // CBA DEBUG
+/*
+    std::list<std::string> files = filesystem.list_directory("/cache");
+    for (auto& file : files) {
+      Serial.print("  FILE: ");
+      Serial.println(file.c_str());
+      //RNS::Bytes content = filesystem.read_file(file.c_str());
+      //DEBUG(std::string("FILE: ") + file);
+      //DEBUG(content.toString());
+      }
+*/
+    TRACE("FILE: destination_table");
+    RNS::Bytes content;
+    if (filesystem.read_file("/destination_table", content) > 0) {
+      TRACE(content.toString() + "\r\n");
+    }
+#endif
+
+    // CBA Start RNS
+    if (hw_ready) {
       RNS::setLogCallback(&on_log);
       RNS::Transport::set_receive_packet_callback(on_receive_packet);
       RNS::Transport::set_transmit_packet_callback(on_transmit_packet);
 
       Serial.write("Starting RNS...\r\n");
-      RNS::loglevel(RNS::LOG_EXTREME);
+      RNS::loglevel(RNS::LOG_TRACE);
       //RNS::loglevel(RNS::LOG_MEM);
 
-      RNS::head("Initializing Filesystem ...", RNS::LOG_EXTREME);
-      filesystem.init();
-      Serial.println("done innit");
-      RNS::extreme("Registering Filesystem...");
-      RNS::Utilities::OS::register_filesystem(filesystem);
-      RNS::extreme("Registered Filesystem");
-
-/*
-      std::list<std::string> files = filesystem.get_files("/");
-      for (auto& file : files) {
-        Serial.print("  FILE: ");
-        Serial.println(file.c_str());
-        //RNS::Bytes content = filesystem.read_file(file.c_str());
-        //RNS::debug(std::string("FILE: ") + file);
-        //RNS::debug(content.toString());
-      }
-*/
-
-      RNS::head("Registering LoRA Interface...", RNS::LOG_EXTREME);
+      HEAD("Registering LoRA Interface...", RNS::LOG_TRACE);
       lora_interface.mode(RNS::Type::Interface::MODE_GATEWAY);
       RNS::Transport::register_interface(lora_interface);
 
-      RNS::head("Creating Reticulum instance...", RNS::LOG_EXTREME);
+      HEAD("Creating Reticulum instance...", RNS::LOG_TRACE);
       reticulum = RNS::Reticulum();
       reticulum.transport_enabled(op_mode == MODE_TNC);
       reticulum.probe_destination_enabled(true);
@@ -439,27 +455,31 @@ void setup() {
       RNS::Destination destination(identity, RNS::Type::Destination::IN, RNS::Type::Destination::SINGLE, "rnstransport", "local");
 */
       RNS::Destination destination(RNS::Transport::identity(), RNS::Type::Destination::IN, RNS::Type::Destination::SINGLE, "rnstransport", "local");
-    }
-    catch (std::exception& e) {
-      RNS::error("RNS startup failed: " + std::string(e.what()));
-    }
 
-    RNS::head("RNS is READY!", RNS::LOG_EXTREME);
-    if (op_mode == MODE_TNC) {
-      RNS::head("RNS transport mode is ENABLED", RNS::LOG_EXTREME);
-      RNS::extreme(std::string("Frequency: " + std::to_string(lora_freq)) + " Hz");
-      RNS::extreme(std::string("Bandwidth: " + std::to_string(lora_bw)) + " Hz");
-      RNS::extreme(std::string("TX Power: " + std::to_string(lora_txp)) + " dBm");
-      RNS::extreme(std::string("Spreading Factor: " + std::to_string(lora_sf)));
-      RNS::extreme(std::string("Coding Rate: " + std::to_string(lora_sf)));
+      HEAD("RNS is READY!", RNS::LOG_TRACE);
+      if (op_mode == MODE_TNC) {
+        HEAD("RNS transport mode is ENABLED", RNS::LOG_TRACE);
+        TRACE(std::string("Frequency: " + std::to_string(lora_freq)) + " Hz");
+        TRACE(std::string("Bandwidth: " + std::to_string(lora_bw)) + " Hz");
+        TRACE(std::string("TX Power: " + std::to_string(lora_txp)) + " dBm");
+        TRACE(std::string("Spreading Factor: " + std::to_string(lora_sf)));
+        TRACE(std::string("Coding Rate: " + std::to_string(lora_sf)));
+      }
+      else {
+        HEAD("RNS transport mode is DISABLED", RNS::LOG_INFO);
+        HEAD("Configure TNC mode with radio configuration to enable RNS transport", RNS::LOG_INFO);
+      }
+      //RNS::loglevel(RNS::LOG_NONE);
     }
     else {
-      RNS::head("RNS transport mode is DISABLED (must configure TNC mode to enable)", RNS::LOG_EXTREME);
+      HEAD("RNS is inoperable because hardware is not ready!", RNS::LOG_ERROR);
+      HEAD("Check firmware signature and eeprom provisioning", RNS::LOG_ERROR);
+      // CBA Clear cached files just in case cached files are responsible for failure
+  		//reticulum.clear_caches();
     }
-    //RNS::loglevel(RNS::LOG_NONE);
   }
-  else {
-    RNS::head("RNS is inoperable because hardware is not ready!", RNS::LOG_ERROR);
+  catch (std::exception& e) {
+    ERROR("RNS startup failed: " + std::string(e.what()));
   }
 #endif
 }
@@ -474,7 +494,7 @@ void lora_receive() {
 
 inline void kiss_write_packet() {
 
-#ifdef HAS_TRANSPORT
+#ifdef HAS_RNS
   // CBA send packet received over LoRa to RNS in addition to connected client
   RNS::Bytes data;
   for (uint16_t i = 0; i < read_len; i++) {
@@ -1475,7 +1495,7 @@ void validate_status() {
 
 void loop() {
 
-#ifdef HAS_TRANSPORT
+#ifdef HAS_RNS
   // CBA
   if (reticulum) {
 	  reticulum.loop();

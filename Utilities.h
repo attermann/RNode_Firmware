@@ -100,6 +100,11 @@ uint8_t boot_vector = 0x00;
 	// TODO: Get NRF52 boot flags
 #endif
 
+#ifdef HAS_RNS
+#include <Reticulum.h>
+extern RNS::Reticulum reticulum;
+#endif
+
 #if HAS_NP == true
 	#include <Adafruit_NeoPixel.h>
 	#define NUMPIXELS 1
@@ -1250,18 +1255,14 @@ void eeprom_update(int mapped_addr, uint8_t byte) {
             file.write(byte);
         }
         written_bytes++;
-        
+
         if ((mapped_addr - eeprom_addr(0)) == ADDR_INFO_LOCK) {
-            #if !HAS_EEPROM && MCU_VARIANT == MCU_NRF52
-                // have to do a flush because we're only writing 1 byte and it syncs after 4
-                eeprom_flush();
-            #endif
+			// have to do a flush because we're only writing 1 byte and it syncs after 4
+			eeprom_flush();
         }
         else if ((mapped_addr - eeprom_addr(0)) == ADDR_CONF_OK) {
-            #if !HAS_EEPROM && MCU_VARIANT == MCU_NRF52
-                // have to do a flush because we're only writing 1 byte and it syncs after 4
-                eeprom_flush();
-            #endif
+			// have to do a flush because we're only writing 1 byte and it syncs after 4
+			eeprom_flush();
         }
 
         if (written_bytes >= 4) {
@@ -1284,6 +1285,9 @@ void eeprom_erase() {
 	for (int addr = 0; addr < EEPROM_RESERVED; addr++) {
 		eeprom_update(eeprom_addr(addr), 0xFF);
 	}
+	#ifdef HAS_RNS
+		reticulum.clear_caches();
+	#endif
 	hard_reset();
 }
 
