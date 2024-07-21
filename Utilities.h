@@ -1143,25 +1143,44 @@ void promisc_disable() {
 
 #if !HAS_EEPROM && MCU_VARIANT == MCU_NRF52
     bool eeprom_begin() {
-        InternalFS.begin();
+        if (!InternalFS.begin()) {
+            // Filesystem couldn't be initialized so fail
+			return false;
+		}
 
-        file.open(EEPROM_FILE, FILE_O_READ);
-
-        // if file doesn't exist
-        if (!file) {
-            if (file.open(EEPROM_FILE, FILE_O_WRITE)) {
-                // initialise the file with empty content
-                uint8_t empty_content[EEPROM_SIZE] = {0};
-                file.write(empty_content, EEPROM_SIZE);
+		if (InternalFS.exists(EEPROM_FILE)) {
+			if (file.open(EEPROM_FILE, FILE_O_WRITE)) {
+                // File was successfully opened for writing
                 return true;
-            } else {
+            }
+            // File exists but couldn't be opeend for writing so reformat filesystem
+            if (!InternalFS.format()) {
+                // Filesystem format failed so fail
                 return false;
             }
-        } else {
-            file.close();
-            file.open(EEPROM_FILE, FILE_O_WRITE);
-            return true;
-        }
+		}
+
+        // File doesn't exist at this point
+		if (!file.open(EEPROM_FILE, FILE_O_WRITE)) {
+            // New file couldn't be opeend for writing so reformat filesystem in case it wasn't done previously
+			if (!InternalFS.format()) {
+                // Filesystem format failed so fail
+				return false;
+			}
+			if (!file.open(EEPROM_FILE, FILE_O_WRITE)) {
+                // New file still couldn't be opeend for writing so fail
+				return false;
+			}
+		}
+		// New file was successfully opeend for writing so initialise with empty content
+		uint8_t empty_content[EEPROM_SIZE] = {0};
+		if (file.write(empty_content, EEPROM_SIZE) < EEPROM_SIZE) {
+            // Write of content failed so fail
+			return false;
+		}
+        file.flush();
+        // File is opened for writing and all is well
+		return true;
     }
 
     uint8_t eeprom_read(uint32_t mapped_addr) {

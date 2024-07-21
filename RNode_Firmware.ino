@@ -13,6 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// WDT timeout
+#define WDT_TIMEOUT 60  // seconds
+
+#if MCU_VARIANT == MCU_ESP32
+  #include <esp_task_wdt.h>
+#endif
+
 // CBA Reticulum includes must come before local to avoid collision with local defines
 #ifdef HAS_RNS
 #include <Transport.h>
@@ -20,6 +27,7 @@
 #include <Interface.h>
 #include <Log.h>
 #include <Bytes.h>
+#include <queue>
 #endif
 
 #include <Arduino.h>
@@ -27,7 +35,11 @@
 #include "Utilities.h"
 
 // CBA Filesystem
+#if defined(RNS_USE_FS)
 #include "Filesystem.h"
+#else
+#include "NoopFilesystem.h"
+#endif
 
 // CBA SD
 #if HAS_SDCARD
@@ -83,13 +95,13 @@ public:
 	virtual inline std::string toString() const { return "LoRaInterface[" + name() + "]"; }
 	virtual void on_incoming(const RNS::Bytes& data) {
     // CBA NOTE header is already strippped from packet by receive_callback function
-    TRACE("LoRaInterface.on_incoming: data: " + data.toHex());
+    TRACEF("LoRaInterface.on_incoming: (%u bytes) data: %s", data.size(), data.toHex().c_str());
     Interface::on_incoming(data);
   }
 private:
 	virtual void on_outgoing(const RNS::Bytes& data) {
     // CBA NOTE header will be addded later by transmit function
-    TRACE("LoRaInterface.on_outgoing: data: " + data.toHex());
+    TRACEF("LoRaInterface.on_outgoing: (%u bytes) data: %s", data.size(), data.toHex().c_str());
     TRACE("LoRaInterface.on_outgoing: adding packet to outgoing queue...");
     for (size_t i = 0; i < data.size(); i++) {
         if (queue_height < CONFIG_QUEUE_MAX_LENGTH && queued_bytes < CONFIG_QUEUE_SIZE) {
@@ -142,7 +154,7 @@ void on_log(const char* msg, RNS::LogLevel level) {
     file.write((uint8_t*)line.c_str(), line.length());
     file.close();
   }
-#endif
+#endif  // HAS_SDCARD
 }
 
 // CBA receive packet callback
@@ -164,7 +176,7 @@ void on_receive_packet(const RNS::Bytes& raw, const RNS::Interface& interface) {
       file.close();
     }
 	}
-#endif
+#endif  // HAS_SDCARD
 }
 
 // CBA transmit packet callback
@@ -186,16 +198,46 @@ void on_transmit_packet(const RNS::Bytes& raw, const RNS::Interface& interface) 
       file.close();
     }
 	}
-#endif
+#endif  // HAS_SDCARD
 }
 
 // CBA RNS
 RNS::Reticulum reticulum = {RNS::Type::NONE};
 LoRaInterface lora_interface;
+#if defined(RNS_USE_FS)
 Filesystem filesystem;
+#else
+NoopFilesystem filesystem;
 #endif
+#endif  // HAS_RNS
 
 void setup() {
+
+  // Initialise serial communication
+  memset(serialBuffer, 0, sizeof(serialBuffer));
+  fifo_init(&serialFIFO, serialBuffer, CONFIG_UART_BUFFER_SIZE);
+
+  Serial.begin(serial_baudrate);
+
+  // CBA Safely wait for serial initialization
+  while (!Serial) {
+    if (millis() > 2000) {
+      break;
+    }
+    delay(10);
+  }
+
+  // Configure WDT
+#if MCU_VARIANT == MCU_ESP32
+  esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
+  esp_task_wdt_add(NULL);               // add current thread to WDT watch
+#elif MCU_VARIANT == MCU_NRF52
+  NRF_WDT->CONFIG         = 0x01;           // Configure WDT to run when CPU is asleep
+  NRF_WDT->CRV            = WDT_TIMEOUT * 32768 + 1; // set timeout
+  NRF_WDT->RREN           = 0x01;           // Enable the RR[0] reload register
+  NRF_WDT->TASKS_START    = 1;              // Start WDT
+#endif
+
   #if MCU_VARIANT == MCU_ESP32
     boot_seq();
     EEPROM.begin(EEPROM_SIZE);
@@ -219,18 +261,6 @@ void setup() {
     int seed_val = analogRead(0);
   #endif
   randomSeed(seed_val);
-
-  // Initialise serial communication
-  memset(serialBuffer, 0, sizeof(serialBuffer));
-  fifo_init(&serialFIFO, serialBuffer, CONFIG_UART_BUFFER_SIZE);
-
-  Serial.begin(serial_baudrate);
-
-  // CBA Safely wait for serial initialization
-  while (!Serial) {
-    if (millis() > 2000)
-      break;
-  }
 
   #if BOARD_MODEL != BOARD_RAK4631 && BOARD_MODEL != BOARD_RNODE_NG_22
   // Some boards need to wait until the hardware UART is set up before booting
@@ -387,12 +417,14 @@ void setup() {
     HEAD("Registering filesystem...", RNS::LOG_TRACE);
     RNS::Utilities::OS::register_filesystem(filesystem);
 
-#ifndef DNDEBUG
+#ifndef NDEBUG
     //filesystem.remove_directory("/cache");
     //filesystem.remove_file("/destination_table");
     //filesystem.reformat();
     TRACE("Listing filesystem...");
-    Filesystem::listDir("/", "");
+#if defined(RNS_USE_FS)
+    Filesystem::listDir("/");
+#endif
     TRACE("Finished listing");
     //TRACE("Dumping filesystem...");
     //Filesystem::dumpDir("/");
@@ -415,7 +447,7 @@ void setup() {
     if (filesystem.read_file("/destination_table", content) > 0) {
       TRACE(content.toString() + "\r\n");
     }
-#endif
+#endif  // NDEBUG
 
     // CBA Start RNS
     if (hw_ready) {
@@ -481,7 +513,7 @@ void setup() {
   catch (std::exception& e) {
     ERROR("RNS startup failed: " + std::string(e.what()));
   }
-#endif
+#endif  // HAS_RNS
 }
 
 void lora_receive() {
@@ -496,7 +528,9 @@ inline void kiss_write_packet() {
 
 #ifdef HAS_RNS
   // CBA send packet received over LoRa to RNS in addition to connected client
-  RNS::Bytes data;
+  // CBA RESERVE
+  //RNS::Bytes data();
+  RNS::Bytes data(512);
   for (uint16_t i = 0; i < read_len; i++) {
     data << pbuf[i];
   }
@@ -1616,6 +1650,13 @@ void loop() {
   #if HAS_INPUT
     input_read();
   #endif
+
+  // Feed WDT
+#if MCU_VARIANT == MCU_ESP32
+  esp_task_wdt_reset();
+#elif MCU_VARIANT == MCU_NRF52
+  NRF_WDT->RR[0] = WDT_RR_RR_Reload;
+#endif
 }
 
 void sleep_now() {

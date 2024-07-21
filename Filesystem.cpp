@@ -60,9 +60,9 @@ size_t usedBytes() {
 
 #endif
 
-#ifndef DNDEBUG
+#ifndef NDEBUG
 
-void Filesystem::listDir(const char* dir, const char* prefix) {
+void Filesystem::listDir(const char* dir, const char* prefix /*= ""*/) {
 	Serial.print(prefix);
 	std::string full_dir(dir);
 	if (full_dir.compare("/") != 0) {
@@ -81,8 +81,8 @@ void Filesystem::listDir(const char* dir, const char* prefix) {
 		File file = root.openNextFile();
 		while (file) {
 			char* name = (char*)file.name();
+			std::string recurse_dir(full_dir);
 			if (file.isDirectory()) {
-				std::string recurse_dir(full_dir);
 				recurse_dir += name;
 				listDir(recurse_dir.c_str(), pre.c_str());
 			}
@@ -149,7 +149,22 @@ void Filesystem::dumpDir(const char* dir) {
 	}
 }
 
-void Filesystem::reformat() {
+bool Filesystem::format() {
+	INFO("Formatting filesystem...");
+	try {
+		if (!FS.format()) {
+			ERROR("Format failed!");
+			return false;
+		}
+		return true;
+	}
+	catch (std::exception& e) {
+		ERROR("Filesystem reformat Exception: " + std::string(e.what()));
+	}
+	return false;
+}
+
+bool Filesystem::reformat() {
 	INFO("Reformatting filesystem...");
 	try {
 		RNS::Bytes eeprom;
@@ -160,6 +175,7 @@ void Filesystem::reformat() {
 		//read_file("/time_offset", time_offset);
 		if (!FS.format()) {
 			ERROR("Format failed!");
+			return false;
 		}
 		if (eeprom) {
 			write_file("/eeprom", eeprom);
@@ -170,10 +186,12 @@ void Filesystem::reformat() {
 		//if (time_offset) {
 		//	write_file("/time_offset", time_offset);
 		//}
+		return true;
 	}
 	catch (std::exception& e) {
 		ERROR("Filesystem reformat Exception: " + std::string(e.what()));
 	}
+	return false;
 }
 
 #endif
@@ -208,7 +226,7 @@ bool Filesystem::init() {
 #endif
 		// Ensure filesystem is writable and reformat if not
 		RNS::Bytes test("test");
-		if (!write_file("/test", test)) {
+		if (write_file("/test", test) < 4) {
 			HEAD("Failed to write test file, filesystem is being reformatted...", RNS::LOG_CRITICAL);
 			//FS.format();
 			reformat();
@@ -226,7 +244,7 @@ bool Filesystem::init() {
 }
 
 /*virtua*/ bool Filesystem::file_exists(const char* file_path) {
-	TRACE("file_exists: checking for existence of file " + std::string(file_path));
+	TRACEF("file_exists: checking for existence of file %s", file_path);
 /*
 #if FS_TYPE == FS_TYPE_INTERNALFS
 	File file(InternalFS);
@@ -245,7 +263,7 @@ bool Filesystem::init() {
 }
 
 /*virtua*/ size_t Filesystem::read_file(const char* file_path, RNS::Bytes& data) {
-	TRACE("read_file: reading from file " + std::string(file_path));
+	TRACEF("read_file: reading from file %s", file_path);
 	size_t read = 0;
 #if FS_TYPE == FS_TYPE_INTERNALFS
 	File file(InternalFS);
@@ -256,22 +274,22 @@ bool Filesystem::init() {
 #endif
 		size_t size = file.size();
 		read = file.readBytes((char*)data.writable(size), size);
-		TRACE("read_file: read " + std::to_string(read) + " bytes from file " + std::string(file_path));
+		TRACEF("read_file: read %u bytes from file %s", read, file_path);
 		if (read != size) {
-			ERROR("read_file: failed to read file " + std::string(file_path));
+			ERRORF("read_file: failed to read file %s", file_path);
             data.resize(read);
 		}
 		//TRACE("read_file: closing input file");
 		file.close();
 	}
 	else {
-		ERROR("read_file: failed to open input file " + std::string(file_path));
+		ERRORF("read_file: failed to open input file %s", file_path);
 	}
     return read;
 }
 
 /*virtua*/ size_t Filesystem::write_file(const char* file_path, const RNS::Bytes& data) {
-	TRACE("write_file: writing to file " + std::string(file_path));
+	TRACEF("write_file: writing to file %s", file_path);
 	// CBA TODO Replace remove with working truncation
 	if (FS.exists(file_path)) {
 		FS.remove(file_path);
@@ -288,31 +306,31 @@ bool Filesystem::init() {
 		//file.seek(0);
 		//file.truncate(0);
 		wrote = file.write(data.data(), data.size());
-        TRACE("write_file: wrote " + std::to_string(wrote) + " bytes to file " + std::string(file_path));
+        TRACEF("write_file: wrote %u bytes to file %s", wrote, file_path);
         if (wrote < data.size()) {
-			WARNING("write_file: not all data was written to file " + std::string(file_path));
+			WARNINGF("write_file: not all data was written to file %s", file_path);
 		}
 		//TRACE("write_file: closing output file");
 		file.close();
 	}
 	else {
-		ERROR("write_file: failed to open output file " + std::string(file_path));
+		ERRORF("write_file: failed to open output file %s", file_path);
 	}
     return wrote;
 }
 
 /*virtua*/ bool Filesystem::remove_file(const char* file_path) {
-	TRACE("remove_file: removing file " + std::string(file_path));
+	TRACEF("remove_file: removing file %s", file_path);
 	return FS.remove(file_path);
 }
 
 /*virtua*/ bool Filesystem::rename_file(const char* from_file_path, const char* to_file_path) {
-	TRACE("rename_file: renaming file " + std::string(from_file_path) + " to " + std::string(to_file_path));
+	TRACEF("rename_file: renaming file %s to %s", from_file_path, to_file_path);
 	return FS.rename(from_file_path, to_file_path);
 }
 
 /*virtua*/ bool Filesystem::directory_exists(const char* directory_path) {
-	TRACE("directory_exists: checking for existence of directory " + std::string(directory_path));
+	TRACEF("directory_exists: checking for existence of directory %s", directory_path);
 #if FS_TYPE == FS_TYPE_INTERNALFS
 	File file(InternalFS);
 	if (file.open(directory_path, FILE_O_READ)) {
@@ -328,7 +346,7 @@ bool Filesystem::init() {
 }
 
 /*virtua*/ bool Filesystem::create_directory(const char* directory_path) {
-	TRACE("create_directory: creating directory " + std::string(directory_path));
+	TRACEF("create_directory: creating directory %s", directory_path);
 	if (!FS.mkdir(directory_path)) {
 		ERROR("create_directory: failed to create directory " + std::string(directory_path));
 		return false;
@@ -337,7 +355,7 @@ bool Filesystem::init() {
 }
 
 /*virtua*/ bool Filesystem::remove_directory(const char* directory_path) {
-	TRACE("remove_directory: removing directory " + std::string(directory_path));
+	TRACEF("remove_directory: removing directory %s", directory_path);
 #if FS_TYPE == FS_TYPE_INTERNALFS
 	if (!FS.rmdir_r(directory_path)) {
 #else
@@ -350,7 +368,7 @@ bool Filesystem::init() {
 }
 
 /*virtua*/ std::list<std::string> Filesystem::list_directory(const char* directory_path) {
-	TRACE("list_directory: listing directory " + std::string(directory_path));
+	TRACEF("list_directory: listing directory %s", directory_path);
 	std::list<std::string> files;
 	File root = FS.open(directory_path);
 	if (!root) {

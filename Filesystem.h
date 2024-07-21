@@ -11,10 +11,11 @@ class Filesystem : public RNS::Filesystem {
 public:
 
 	// CBA Debug
-	static void listDir(const char* dir, const char* prefix);
+	static void listDir(const char* dir, const char* prefix = "");
 	static void dumpDir(const char* dir);
 
-	void reformat();
+	bool format();
+	bool reformat();
 
 	bool init();
 
