@@ -13,13 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// WDT timeout
-#define WDT_TIMEOUT 60  // seconds
-
-#if MCU_VARIANT == MCU_ESP32
-  #include <esp_task_wdt.h>
-#endif
-
 // CBA Reticulum includes must come before local to avoid collision with local defines
 #ifdef HAS_RNS
 #include <Transport.h>
@@ -46,6 +39,13 @@
 #include <SD.h>
 SPIClass SDSPI(HSPI);
 #endif
+
+#if MCU_VARIANT == MCU_ESP32
+  #include <esp_task_wdt.h>
+#endif
+
+// WDT timeout
+#define WDT_TIMEOUT 60  // seconds
 
 FIFOBuffer serialFIFO;
 uint8_t serialBuffer[CONFIG_UART_BUFFER_SIZE+1];
