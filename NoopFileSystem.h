@@ -2,22 +2,23 @@
 
 #ifdef HAS_RNS
 
-#include <Filesystem.h>
+#include <FileSystem.h>
 #include <Bytes.h>
 #include <Type.h>
 
-class NoopFilesystem : public RNS::Filesystem {
+class NoopFileSystem : public RNS::FileSystemImpl {
 
 public:
+	NoopFileSystem() {}
 
-	// CBA Debug
-	static void listDir(const char* dir, const char* prefix = "") {}
-	static void dumpDir(const char* dir) {}
-
+	bool init() { return true; }
 	bool format() { return false; }
 	bool reformat() { return false; }
 
-	bool init() { return true; }
+public:
+	// CBA Debug
+	static void listDir(const char* dir, const char* prefix = "") {}
+	static void dumpDir(const char* dir) {}
 
 public:
 	virtual bool file_exists(const char* file_path) { return false; }

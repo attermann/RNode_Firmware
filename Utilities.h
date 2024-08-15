@@ -1144,7 +1144,7 @@ void promisc_disable() {
 #if !HAS_EEPROM && MCU_VARIANT == MCU_NRF52
     bool eeprom_begin() {
         if (!InternalFS.begin()) {
-            // Filesystem couldn't be initialized so fail
+            // FileSystem couldn't be initialized so fail
 			return false;
 		}
 
@@ -1155,7 +1155,7 @@ void promisc_disable() {
             }
             // File exists but couldn't be opeend for writing so reformat filesystem
             if (!InternalFS.format()) {
-                // Filesystem format failed so fail
+                // FileSystem format failed so fail
                 return false;
             }
 		}
@@ -1164,7 +1164,7 @@ void promisc_disable() {
 		if (!file.open(EEPROM_FILE, FILE_O_WRITE)) {
             // New file couldn't be opeend for writing so reformat filesystem in case it wasn't done previously
 			if (!InternalFS.format()) {
-                // Filesystem format failed so fail
+                // FileSystem format failed so fail
 				return false;
 			}
 			if (!file.open(EEPROM_FILE, FILE_O_WRITE)) {

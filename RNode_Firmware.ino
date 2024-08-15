@@ -27,11 +27,11 @@
 #include <SPI.h>
 #include "Utilities.h"
 
-// CBA Filesystem
+// CBA FileSystem
 #if defined(RNS_USE_FS)
-#include "Filesystem.h"
+#include "FileSystem.h"
 #else
-#include "NoopFilesystem.h"
+#include "NoopFileSystem.h"
 #endif
 
 // CBA SD
@@ -79,30 +79,24 @@ char sbuf[128];
 
 #ifdef HAS_RNS
 // CBA LoRa interface
-class LoRaInterface : public RNS::Interface {
+class LoRaInterface : public RNS::InterfaceImpl {
 public:
-	LoRaInterface() : RNS::Interface("LoRaInterface") {
-		IN(true);
-		OUT(true);
+	LoRaInterface() : RNS::InterfaceImpl("LoRaInterface") {
+		_IN = true;
+		_OUT = true;
 	}
-	LoRaInterface(const char *name) : RNS::Interface(name) {
-		IN(true);
-		OUT(true);
+	LoRaInterface(const char *name) : RNS::InterfaceImpl(name) {
+		_IN = true;
+		_OUT = true;
 	}
 	virtual ~LoRaInterface() {
-		name("deleted");
+		_name = "deleted";
 	}
-	virtual inline std::string toString() const { return "LoRaInterface[" + name() + "]"; }
-	virtual void on_incoming(const RNS::Bytes& data) {
-    // CBA NOTE header is already strippped from packet by receive_callback function
-    TRACEF("LoRaInterface.on_incoming: (%u bytes) data: %s", data.size(), data.toHex().c_str());
-    Interface::on_incoming(data);
-  }
-private:
-	virtual void on_outgoing(const RNS::Bytes& data) {
+protected:
+	virtual void send_outgoing(const RNS::Bytes& data) {
     // CBA NOTE header will be addded later by transmit function
-    TRACEF("LoRaInterface.on_outgoing: (%u bytes) data: %s", data.size(), data.toHex().c_str());
-    TRACE("LoRaInterface.on_outgoing: adding packet to outgoing queue...");
+    TRACEF("LoRaInterface.send_outgoing: (%u bytes) data: %s", data.size(), data.toHex().c_str());
+    TRACE("LoRaInterface.send_outgoing: adding packet to outgoing queue...");
     for (size_t i = 0; i < data.size(); i++) {
         if (queue_height < CONFIG_QUEUE_MAX_LENGTH && queued_bytes < CONFIG_QUEUE_SIZE) {
             queued_bytes++;
@@ -131,6 +125,8 @@ private:
         }
 
     }
+    // CBA Call base method to handle internal housekeeping
+    InterfaceImpl::send_outgoing(data);
   }
 };
 
@@ -202,13 +198,9 @@ void on_transmit_packet(const RNS::Bytes& raw, const RNS::Interface& interface) 
 }
 
 // CBA RNS
-RNS::Reticulum reticulum = {RNS::Type::NONE};
-LoRaInterface lora_interface;
-#if defined(RNS_USE_FS)
-Filesystem filesystem;
-#else
-NoopFilesystem filesystem;
-#endif
+RNS::Reticulum reticulum(RNS::Type::NONE);
+RNS::Interface lora_interface(RNS::Type::NONE);
+RNS::FileSystem filesystem(RNS::Type::NONE);
 #endif  // HAS_RNS
 
 void setup() {
@@ -226,17 +218,19 @@ void setup() {
     }
     delay(10);
   }
+  // CBA Test
+  delay(2000);
 
   // Configure WDT
-#if MCU_VARIANT == MCU_ESP32
-  esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
-  esp_task_wdt_add(NULL);               // add current thread to WDT watch
-#elif MCU_VARIANT == MCU_NRF52
-  NRF_WDT->CONFIG         = 0x01;           // Configure WDT to run when CPU is asleep
-  NRF_WDT->CRV            = WDT_TIMEOUT * 32768 + 1; // set timeout
-  NRF_WDT->RREN           = 0x01;           // Enable the RR[0] reload register
-  NRF_WDT->TASKS_START    = 1;              // Start WDT
-#endif
+  #if MCU_VARIANT == MCU_ESP32
+    esp_task_wdt_init(WDT_TIMEOUT, true); // enable panic so ESP32 restarts
+    esp_task_wdt_add(NULL);               // add current thread to WDT watch
+  #elif MCU_VARIANT == MCU_NRF52
+    NRF_WDT->CONFIG         = 0x01;           // Configure WDT to run when CPU is asleep
+    NRF_WDT->CRV            = WDT_TIMEOUT * 32768 + 1; // set timeout
+    NRF_WDT->RREN           = 0x01;           // Enable the RR[0] reload register
+    NRF_WDT->TASKS_START    = 1;              // Start WDT
+  #endif
 
   #if MCU_VARIANT == MCU_ESP32
     boot_seq();
@@ -412,7 +406,13 @@ void setup() {
 #ifdef HAS_RNS
   try {
     // CBA Init filesystem
-    filesystem.init();
+#if defined(RNS_USE_FS)
+    filesystem = new FileSystem();
+    ((FileSystem*)filesystem.get())->init();
+#else
+    filesystem = new NoopFileSystem();
+    ((FileSystem*)filesystem.get())->init();
+#endif
 
     HEAD("Registering filesystem...", RNS::LOG_TRACE);
     RNS::Utilities::OS::register_filesystem(filesystem);
@@ -423,11 +423,11 @@ void setup() {
     //filesystem.reformat();
     TRACE("Listing filesystem...");
 #if defined(RNS_USE_FS)
-    Filesystem::listDir("/");
+    //FileSystem::listDir("/");
 #endif
     TRACE("Finished listing");
     //TRACE("Dumping filesystem...");
-    //Filesystem::dumpDir("/");
+    //FileSystem::dumpDir("/");
     //TRACE("Finished dumping");
     //reticulum.clear_caches();
 
@@ -460,6 +460,7 @@ void setup() {
       //RNS::loglevel(RNS::LOG_MEM);
 
       HEAD("Registering LoRA Interface...", RNS::LOG_TRACE);
+      lora_interface = new LoRaInterface();
       lora_interface.mode(RNS::Type::Interface::MODE_GATEWAY);
       RNS::Transport::register_interface(lora_interface);
 
@@ -534,7 +535,7 @@ inline void kiss_write_packet() {
   for (uint16_t i = 0; i < read_len; i++) {
     data << pbuf[i];
   }
-  lora_interface.on_incoming(data);
+  lora_interface.handle_incoming(data);
 #endif
 
   serial_write(FEND);
